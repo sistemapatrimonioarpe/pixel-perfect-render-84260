@@ -65,12 +65,12 @@ function SetorDialog({ value, onClose }: { value: Partial<Setor> | null; onClose
   const open = value !== null;
   const v = { ...value, ...form };
   async function save() {
-    if (!v.nome?.trim()) return toast.error("Informe o nome");
+    if (!v.nome?.trim()) return void toast.error("Informe o nome");
     setSaving(true);
     const payload = { nome: v.nome.trim(), sigla: v.sigla || null, responsavel: v.responsavel || null };
     const { error } = value?.id ? await db.from("setores").update(payload).eq("id", value.id) : await db.from("setores").insert(payload);
     setSaving(false);
-    if (error) return toast.error(error.code === "23505" ? "Já existe um setor com esse nome" : error.message);
+    if (error) return void toast.error(error.code === "23505" ? "Já existe um setor com esse nome" : error.message);
     toast.success("Setor salvo"); setForm({}); onClose();
   }
   return (

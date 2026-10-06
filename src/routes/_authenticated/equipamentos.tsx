@@ -124,12 +124,12 @@ export function EquipamentoDialog({ value, setores, onClose }: { value: Partial<
   const v = { ...value, ...form };
   const close = () => { setForm({}); onClose(); };
   async function save() {
-    if (!v.tombamento?.trim() || !v.nome?.trim()) return toast.error("Tombamento e nome são obrigatórios");
+    if (!v.tombamento?.trim() || !v.nome?.trim()) return void toast.error("Tombamento e nome são obrigatórios");
     setSaving(true);
     const payload = { tombamento: v.tombamento.trim(), nome: v.nome.trim(), descricao: v.descricao || null, usuario: v.usuario || null, estado: v.estado || "Bom", setor_id: v.setor_id || null, updated_at: new Date().toISOString() };
     const res = value?.id ? await db.from("equipamentos").update(payload).eq("id", value.id).select().single() : await db.from("equipamentos").insert(payload).select().single();
     setSaving(false);
-    if (res.error) return toast.error(res.error.code === "23505" ? "Este tombamento já existe" : res.error.message);
+    if (res.error) return void toast.error(res.error.code === "23505" ? "Este tombamento já existe" : res.error.message);
     const nomeSetor = setores.find((s) => s.id === payload.setor_id)?.nome ?? "sem setor";
     if (!value?.id) await logHistorico(res.data.id, "Cadastro", `Setor: ${nomeSetor}`);
     else if (value.setor_id !== payload.setor_id) await logHistorico(res.data.id, "Transferência", `Para ${nomeSetor}`);
@@ -178,7 +178,7 @@ export function HistoricoList({ equipamentoId }: { equipamentoId: string }) {
   );
 }
 
-function Ficha({ equip, setor, onClose }: { equip: Equipamento | null; setor?: Setor; onClose: () => void }) {
+function Ficha({ equip, setor, onClose }: { equip: Equipamento | null; setor?: Setor | undefined; onClose: () => void }) {
   return (
     <Dialog open={!!equip} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-h-[90vh] overflow-y-auto">
@@ -214,9 +214,9 @@ function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void })
   async function onFile(f: File) {
     try {
       const wb = XLSX.read(await f.arrayBuffer());
-      const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]], { defval: "" });
-      if (!data.length) return toast.error("Planilha vazia");
-      const c = Object.keys(data[0]);
+      const data = XLSX.utils.sheet_to_json<Record<string, unknown>>(wb.Sheets[wb.SheetNames[0]!]!, { defval: "" });
+      if (!data.length) return void toast.error("Planilha vazia");
+      const c = Object.keys(data[0]!);
       setRows(data); setCols(c); setReport(null);
       const guess = (keys: string[]) => c.find((x) => keys.some((k) => x.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").includes(k))) ?? "";
       setMap({ tombamento: guess(["tomb", "patrim", "codigo"]), nome: guess(["nome", "item", "tipo"]), descricao: guess(["desc"]), usuario: guess(["usuar", "respons"]), setor: guess(["setor", "lotac", "local"]) });
@@ -224,7 +224,7 @@ function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void })
   }
 
   async function run() {
-    if (!map.tombamento || !map.nome) return toast.error("Mapeie ao menos tombamento e nome");
+    if (!map.tombamento || !map.nome) return void toast.error("Mapeie ao menos tombamento e nome");
     setBusy(true);
     const r = { importados: 0, atualizados: 0, ignorados: 0, erros: [] as string[] };
     try {

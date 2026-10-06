@@ -17,7 +17,7 @@ export const Route = createFileRoute("/_authenticated/inventario/$id")({
 
 type Scan =
   | { kind: "ok"; equip: Equipamento; repetido: boolean }
-  | { kind: "outro"; equip: Equipamento; setorAtual?: Setor }
+  | { kind: "outro"; equip: Equipamento; setorAtual?: Setor | undefined }
   | { kind: "nao"; codigo: string };
 
 function InventarioSetor() {
@@ -74,7 +74,7 @@ function InventarioSetor() {
   async function processar(raw: string) {
     const c = raw.trim();
     if (!c || !d || busy.current) return;
-    if (finalizado) return toast.error("Este inventário já foi finalizado");
+    if (finalizado) return void toast.error("Este inventário já foi finalizado");
     busy.current = true;
     try {
       const { data, error } = await db.from("equipamentos").select("*").eq("tombamento", c).maybeSingle();
@@ -99,7 +99,7 @@ function InventarioSetor() {
     if (scan?.kind !== "outro" || !d) return;
     const alvo = d.setores.find((s) => s.id === destino);
     const { error } = await db.from("equipamentos").update({ setor_id: destino, updated_at: new Date().toISOString() }).eq("id", scan.equip.id);
-    if (error) return toast.error(error.message);
+    if (error) return void toast.error(error.message);
     await logHistorico(scan.equip.id, "Transferência", `De ${scan.setorAtual?.nome ?? "sem setor"} para ${alvo?.nome}`);
     const e = { ...scan.equip, setor_id: destino };
     if (destino === d.inv.setor_id) { await conferir(e, true); feedback(true); setScan({ kind: "ok", equip: e, repetido: false }); }
@@ -109,7 +109,7 @@ function InventarioSetor() {
   async function finalizar() {
     if (!confirm(`Finalizar o inventário? Faltam ${total - feitos} itens.`)) return;
     const { error } = await db.from("inventarios").update({ finalizado_em: new Date().toISOString() }).eq("id", id);
-    if (error) return toast.error(error.message);
+    if (error) return void toast.error(error.message);
     toast.success("Inventário finalizado"); await q.refetch(); setRelatorio(true);
   }
 
@@ -209,7 +209,7 @@ function InventarioSetor() {
 }
 
 function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onCadastrar, onClose }: {
-  scan: Scan; setor?: Setor; setores: Setor[]; destino: string; setDestino: (v: string) => void;
+  scan: Scan; setor?: Setor | undefined; setores: Setor[]; destino: string; setDestino: (v: string) => void;
   onTransfer: () => void; onCadastrar: (c: string) => void; onClose: () => void;
 }) {
   const tone = scan.kind === "ok" ? "border-success bg-success-soft" : scan.kind === "outro" ? "border-warning bg-warning-soft" : "border-destructive bg-destructive/10";

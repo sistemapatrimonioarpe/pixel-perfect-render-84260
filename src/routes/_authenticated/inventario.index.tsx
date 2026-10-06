@@ -28,12 +28,12 @@ function InventarioHome() {
   });
 
   async function start(s: Setor, aberto?: Inventario) {
-    if (aberto) return navigate({ to: "/inventario/$id", params: { id: aberto.id } });
+    if (aberto) return void navigate({ to: "/inventario/$id", params: { id: aberto.id } });
     setBusy(s.id);
     const { data: u } = await supabase.auth.getUser();
     const { data, error } = await db.from("inventarios").insert({ setor_id: s.id, criado_por: u.user?.id }).select().single();
     setBusy(null);
-    if (error) return toast.error(error.message);
+    if (error) return void toast.error(error.message);
     navigate({ to: "/inventario/$id", params: { id: data.id } });
   }
 
