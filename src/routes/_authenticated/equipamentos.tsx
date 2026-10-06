@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 import * as XLSX from "xlsx";
 import { Download, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
@@ -15,6 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 
 export const Route = createFileRoute("/_authenticated/equipamentos")({
   head: () => ({ meta: [{ title: "Equipamentos — Controle de Patrimônio" }, { name: "description", content: "Tombamentos: busca, cadastro, importação e exportação." }] }),
+  validateSearch: (s: Record<string, unknown>) => ({ setor: typeof s.setor === "string" ? s.setor : undefined }),
   component: Equipamentos,
 });
 
@@ -35,7 +36,9 @@ function Equipamentos() {
     queryFn: async () => ({ eq: await fetchAll<Equipamento>("equipamentos", "tombamento"), se: await fetchAll<Setor>("setores", "nome") }),
   });
   const [busca, setBusca] = useState("");
-  const [fSetor, setFSetor] = useState(ALL);
+  const search = Route.useSearch();
+  const [fSetor, setFSetor] = useState(search.setor ?? ALL);
+  useEffect(() => { if (search.setor) setFSetor(search.setor); }, [search.setor]);
   const [fTipo, setFTipo] = useState(ALL);
   const [fEstado, setFEstado] = useState(ALL);
   const [edit, setEdit] = useState<Partial<Equipamento> | null>(null);

@@ -14,7 +14,9 @@ import { Route as AuthenticatedRouteRouteImport } from './routes/_authenticated/
 import { Route as AuthRouteImport } from './routes/auth'
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated/dashboard'
 import { Route as AuthenticatedEquipamentosRouteImport } from './routes/_authenticated/equipamentos'
+import { Route as AuthenticatedMapaRouteImport } from './routes/_authenticated/mapa'
 import { Route as AuthenticatedSetoresRouteImport } from './routes/_authenticated/setores'
+import { Route as AuthenticatedUsuariosRouteImport } from './routes/_authenticated/usuarios'
 import { Route as AuthenticatedInventarioIndexRouteImport } from './routes/_authenticated/inventario.index'
 import { Route as AuthenticatedInventarioIdRouteImport } from './routes/_authenticated/inventario.$id'
 
@@ -43,9 +45,19 @@ const AuthenticatedEquipamentosRoute =
     path: '/equipamentos',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedMapaRoute = AuthenticatedMapaRouteImport.update({
+  id: '/mapa',
+  path: '/mapa',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
 const AuthenticatedSetoresRoute = AuthenticatedSetoresRouteImport.update({
   id: '/setores',
   path: '/setores',
+  getParentRoute: () => AuthenticatedRouteRoute,
+} as any)
+const AuthenticatedUsuariosRoute = AuthenticatedUsuariosRouteImport.update({
+  id: '/usuarios',
+  path: '/usuarios',
   getParentRoute: () => AuthenticatedRouteRoute,
 } as any)
 const AuthenticatedInventarioIndexRoute =
@@ -66,7 +78,9 @@ export interface FileRoutesByFullPath {
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/equipamentos': typeof AuthenticatedEquipamentosRoute
+  '/mapa': typeof AuthenticatedMapaRoute
   '/setores': typeof AuthenticatedSetoresRoute
+  '/usuarios': typeof AuthenticatedUsuariosRoute
   '/inventario/$id': typeof AuthenticatedInventarioIdRoute
   '/inventario/': typeof AuthenticatedInventarioIndexRoute
 }
@@ -75,7 +89,9 @@ export interface FileRoutesByTo {
   '/auth': typeof AuthRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/equipamentos': typeof AuthenticatedEquipamentosRoute
+  '/mapa': typeof AuthenticatedMapaRoute
   '/setores': typeof AuthenticatedSetoresRoute
+  '/usuarios': typeof AuthenticatedUsuariosRoute
   '/inventario/$id': typeof AuthenticatedInventarioIdRoute
   '/inventario': typeof AuthenticatedInventarioIndexRoute
 }
@@ -86,7 +102,9 @@ export interface FileRoutesById {
   '/auth': typeof AuthRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/equipamentos': typeof AuthenticatedEquipamentosRoute
+  '/_authenticated/mapa': typeof AuthenticatedMapaRoute
   '/_authenticated/setores': typeof AuthenticatedSetoresRoute
+  '/_authenticated/usuarios': typeof AuthenticatedUsuariosRoute
   '/_authenticated/inventario/$id': typeof AuthenticatedInventarioIdRoute
   '/_authenticated/inventario/': typeof AuthenticatedInventarioIndexRoute
 }
@@ -97,7 +115,9 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/equipamentos'
+    | '/mapa'
     | '/setores'
+    | '/usuarios'
     | '/inventario/$id'
     | '/inventario/'
   fileRoutesByTo: FileRoutesByTo
@@ -106,7 +126,9 @@ export interface FileRouteTypes {
     | '/auth'
     | '/dashboard'
     | '/equipamentos'
+    | '/mapa'
     | '/setores'
+    | '/usuarios'
     | '/inventario/$id'
     | '/inventario'
   id:
@@ -116,7 +138,9 @@ export interface FileRouteTypes {
     | '/auth'
     | '/_authenticated/dashboard'
     | '/_authenticated/equipamentos'
+    | '/_authenticated/mapa'
     | '/_authenticated/setores'
+    | '/_authenticated/usuarios'
     | '/_authenticated/inventario/$id'
     | '/_authenticated/inventario/'
   fileRoutesById: FileRoutesById
@@ -164,11 +188,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedEquipamentosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/mapa': {
+      id: '/_authenticated/mapa'
+      path: '/mapa'
+      fullPath: '/mapa'
+      preLoaderRoute: typeof AuthenticatedMapaRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
     '/_authenticated/setores': {
       id: '/_authenticated/setores'
       path: '/setores'
       fullPath: '/setores'
       preLoaderRoute: typeof AuthenticatedSetoresRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
+    '/_authenticated/usuarios': {
+      id: '/_authenticated/usuarios'
+      path: '/usuarios'
+      fullPath: '/usuarios'
+      preLoaderRoute: typeof AuthenticatedUsuariosRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
     '/_authenticated/inventario/': {
@@ -191,7 +229,9 @@ declare module '@tanstack/react-router' {
 interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedEquipamentosRoute: typeof AuthenticatedEquipamentosRoute
+  AuthenticatedMapaRoute: typeof AuthenticatedMapaRoute
   AuthenticatedSetoresRoute: typeof AuthenticatedSetoresRoute
+  AuthenticatedUsuariosRoute: typeof AuthenticatedUsuariosRoute
   AuthenticatedInventarioIdRoute: typeof AuthenticatedInventarioIdRoute
   AuthenticatedInventarioIndexRoute: typeof AuthenticatedInventarioIndexRoute
 }
@@ -199,7 +239,9 @@ interface AuthenticatedRouteRouteChildren {
 const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedEquipamentosRoute: AuthenticatedEquipamentosRoute,
+  AuthenticatedMapaRoute: AuthenticatedMapaRoute,
   AuthenticatedSetoresRoute: AuthenticatedSetoresRoute,
+  AuthenticatedUsuariosRoute: AuthenticatedUsuariosRoute,
   AuthenticatedInventarioIdRoute: AuthenticatedInventarioIdRoute,
   AuthenticatedInventarioIndexRoute: AuthenticatedInventarioIndexRoute,
 }

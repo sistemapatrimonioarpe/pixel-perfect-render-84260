@@ -1,11 +1,12 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { Landmark, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { criarPrimeiroAdmin, existeAdmin, loginToEmail } from "@/lib/usuarios.functions";
 
 export const Route = createFileRoute("/auth")({
   head: () => ({
@@ -14,6 +15,8 @@ export const Route = createFileRoute("/auth")({
       { name: "description", content: "Acesse o sistema de controle de patrimônio e inventário." },
       { property: "og:title", content: "Entrar — Controle de Patrimônio" },
       { property: "og:description", content: "Acesse o sistema de controle de patrimônio e inventário." },
+      { property: "og:type", content: "website" },
+      { name: "twitter:card", content: "summary" },
     ],
   }),
   component: AuthPage,
@@ -21,27 +24,33 @@ export const Route = createFileRoute("/auth")({
 
 function AuthPage() {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<"in" | "up">("in");
-  const [email, setEmail] = useState("");
+  const [usuario, setUsuario] = useState("");
+  const [nome, setNome] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
+  const [setup, setSetup] = useState(false);
+
+  useEffect(() => { existeAdmin().then((r) => setSetup(!r.existe)).catch(() => {}); }, []);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     try {
-      if (mode === "in") {
-        const { error } = await supabase.auth.signInWithPassword({ email, password });
-        if (error) throw error;
-        navigate({ to: "/dashboard" });
-      } else {
-        const { error } = await supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin } });
-        if (error) throw error;
-        toast.success("Cadastro feito! Confirme pelo link enviado ao seu e-mail.");
-        setMode("in");
+      if (setup) {
+        await criarPrimeiroAdmin({ data: { login: usuario, nome, senha: password } });
+        toast.success("Administrador criado");
       }
+      const { data, error } = await supabase.auth.signInWithPassword({ email: loginToEmail(usuario), password });
+      if (error) throw error;
+      const { data: perfil } = await supabase.from("perfis").select("ativo").eq("id", data.user.id).maybeSingle();
+      if (!perfil || !perfil.ativo) {
+        await supabase.auth.signOut();
+        throw new Error("Usuário desativado");
+      }
+      navigate({ to: "/dashboard" });
     } catch (err: any) {
-      toast.error(err.message === "Invalid login credentials" ? "E-mail ou senha incorretos" : err.message);
+      const m = String(err?.message ?? err);
+      toast.error(m === "Invalid login credentials" ? "Usuário ou senha incorretos" : m.toLowerCase().includes("banned") ? "Usuário desativado" : m);
     } finally {
       setLoading(false);
     }
@@ -54,19 +63,18 @@ function AuthPage() {
           <div className="grid h-12 w-12 place-items-center rounded-xl bg-primary text-primary-foreground"><Landmark /></div>
           <div>
             <h1 className="text-xl font-semibold">Controle de Patrimônio</h1>
-            <p className="text-sm text-muted-foreground">{mode === "in" ? "Entre com sua conta" : "Crie sua conta"}</p>
+            <p className="text-sm text-muted-foreground">{setup ? "Primeiro acesso: crie o administrador" : "Entre com seu usuário"}</p>
           </div>
         </div>
-        <div className="space-y-2"><Label htmlFor="email">E-mail</Label>
-          <Input id="email" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} className="h-12" /></div>
+        <div className="space-y-2"><Label htmlFor="usuario">Usuário</Label>
+          <Input id="usuario" required autoComplete="username" autoCapitalize="none" value={usuario} onChange={(e) => setUsuario(e.target.value)} className="h-12" /></div>
+        {setup && <div className="space-y-2"><Label htmlFor="nome">Nome</Label>
+          <Input id="nome" required value={nome} onChange={(e) => setNome(e.target.value)} className="h-12" /></div>}
         <div className="space-y-2"><Label htmlFor="pw">Senha</Label>
-          <Input id="pw" type="password" required minLength={6} value={password} onChange={(e) => setPassword(e.target.value)} className="h-12" /></div>
+          <Input id="pw" type="password" required minLength={6} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-12" /></div>
         <Button type="submit" className="h-12 w-full text-base" disabled={loading}>
-          {loading && <Loader2 className="animate-spin" />}{mode === "in" ? "Entrar" : "Cadastrar"}
+          {loading && <Loader2 className="animate-spin" />}{setup ? "Criar e entrar" : "Entrar"}
         </Button>
-        <button type="button" onClick={() => setMode(mode === "in" ? "up" : "in")} className="w-full text-sm text-primary underline-offset-4 hover:underline">
-          {mode === "in" ? "Não tem conta? Cadastre-se" : "Já tem conta? Entrar"}
-        </button>
       </form>
     </div>
   );
