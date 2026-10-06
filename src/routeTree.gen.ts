@@ -16,6 +16,7 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedEquipamentosRouteImport } from './routes/_authenticated/equipamentos'
 import { Route as AuthenticatedSetoresRouteImport } from './routes/_authenticated/setores'
 import { Route as AuthenticatedInventarioIndexRouteImport } from './routes/_authenticated/inventario.index'
+import { Route as AuthenticatedInventarioIdRouteImport } from './routes/_authenticated/inventario.$id'
 
 const IndexRoute = IndexRouteImport.update({
   id: '/',
@@ -53,6 +54,12 @@ const AuthenticatedInventarioIndexRoute =
     path: '/inventario/',
     getParentRoute: () => AuthenticatedRouteRoute,
   } as any)
+const AuthenticatedInventarioIdRoute =
+  AuthenticatedInventarioIdRouteImport.update({
+    id: '/inventario/$id',
+    path: '/inventario/$id',
+    getParentRoute: () => AuthenticatedRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -60,6 +67,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/equipamentos': typeof AuthenticatedEquipamentosRoute
   '/setores': typeof AuthenticatedSetoresRoute
+  '/inventario/$id': typeof AuthenticatedInventarioIdRoute
   '/inventario/': typeof AuthenticatedInventarioIndexRoute
 }
 export interface FileRoutesByTo {
@@ -68,6 +76,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/equipamentos': typeof AuthenticatedEquipamentosRoute
   '/setores': typeof AuthenticatedSetoresRoute
+  '/inventario/$id': typeof AuthenticatedInventarioIdRoute
   '/inventario': typeof AuthenticatedInventarioIndexRoute
 }
 export interface FileRoutesById {
@@ -78,15 +87,28 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/equipamentos': typeof AuthenticatedEquipamentosRoute
   '/_authenticated/setores': typeof AuthenticatedSetoresRoute
+  '/_authenticated/inventario/$id': typeof AuthenticatedInventarioIdRoute
   '/_authenticated/inventario/': typeof AuthenticatedInventarioIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
-    '/' | '/auth' | '/dashboard' | '/equipamentos' | '/setores' | '/inventario/'
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/equipamentos'
+    | '/setores'
+    | '/inventario/$id'
+    | '/inventario/'
   fileRoutesByTo: FileRoutesByTo
   to:
-    '/' | '/auth' | '/dashboard' | '/equipamentos' | '/setores' | '/inventario'
+    | '/'
+    | '/auth'
+    | '/dashboard'
+    | '/equipamentos'
+    | '/setores'
+    | '/inventario/$id'
+    | '/inventario'
   id:
     | '__root__'
     | '/'
@@ -95,6 +117,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/equipamentos'
     | '/_authenticated/setores'
+    | '/_authenticated/inventario/$id'
     | '/_authenticated/inventario/'
   fileRoutesById: FileRoutesById
 }
@@ -155,6 +178,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedInventarioIndexRouteImport
       parentRoute: typeof AuthenticatedRouteRoute
     }
+    '/_authenticated/inventario/$id': {
+      id: '/_authenticated/inventario/$id'
+      path: '/inventario/$id'
+      fullPath: '/inventario/$id'
+      preLoaderRoute: typeof AuthenticatedInventarioIdRouteImport
+      parentRoute: typeof AuthenticatedRouteRoute
+    }
   }
 }
 
@@ -162,6 +192,7 @@ interface AuthenticatedRouteRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedEquipamentosRoute: typeof AuthenticatedEquipamentosRoute
   AuthenticatedSetoresRoute: typeof AuthenticatedSetoresRoute
+  AuthenticatedInventarioIdRoute: typeof AuthenticatedInventarioIdRoute
   AuthenticatedInventarioIndexRoute: typeof AuthenticatedInventarioIndexRoute
 }
 
@@ -169,6 +200,7 @@ const AuthenticatedRouteRouteChildren: AuthenticatedRouteRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedEquipamentosRoute: AuthenticatedEquipamentosRoute,
   AuthenticatedSetoresRoute: AuthenticatedSetoresRoute,
+  AuthenticatedInventarioIdRoute: AuthenticatedInventarioIdRoute,
   AuthenticatedInventarioIndexRoute: AuthenticatedInventarioIndexRoute,
 }
 
