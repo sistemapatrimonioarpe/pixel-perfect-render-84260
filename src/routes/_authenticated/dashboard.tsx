@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import { Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { Building2, ClipboardCheck, Package } from "lucide-react";
-import { fetchAll, fmtDate, useRealtime, type Equipamento, type Historico, type Inventario, type Setor } from "@/lib/patrimonio";
+import { db, fetchAll, fmtDate, useRealtime, type Equipamento, type Historico, type Inventario, type Setor } from "@/lib/patrimonio";
 import { ErrorBox, Loading, PageHeader } from "@/components/ui-kit";
 
 export const Route = createFileRoute("/_authenticated/dashboard")({
@@ -22,7 +22,7 @@ function Dashboard() {
         fetchAll<Equipamento>("equipamentos"),
         fetchAll<Setor>("setores", "nome"),
         fetchAll<Inventario>("inventarios"),
-        (await import("@/lib/patrimonio")).db.from("historico").select("*").order("created_at", { ascending: false }).limit(15),
+        db.from("historico").select("*").order("created_at", { ascending: false }).limit(15),
       ]);
       if (hist.error) throw hist.error;
       return { eq, se, inv, hist: hist.data as Historico[] };
