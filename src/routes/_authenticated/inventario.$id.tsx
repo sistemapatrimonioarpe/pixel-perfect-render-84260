@@ -183,7 +183,7 @@ function InventarioSetor() {
         })}
       </ul>
 
-      {camera && <CameraScanner onClose={() => setCamera(false)} onCode={(c) => { setCamera(false); processar(c); }} />}
+      {camera && <CameraScanner onClose={() => setCamera(false)} onCode={(c) => processar(c)} />}
       <EquipamentoDialog value={novo} setores={d!.setores} onClose={() => { setNovo(null); setScan(null); }} />
 
       <Dialog open={relatorio} onOpenChange={setRelatorio}>
@@ -252,27 +252,65 @@ function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onCad
 
 function CameraScanner({ onClose, onCode }: { onClose: () => void; onCode: (c: string) => void }) {
   const [err, setErr] = useState<string | null>(null);
+  const [cams, setCams] = useState<{ id: string; label: string }[]>([]);
+  const [camIdx, setCamIdx] = useState(-1);
+  const scannerRef = useRef<any>(null);
+  const runRef = useRef<Promise<void>>(Promise.resolve());
+  const lastRef = useRef({ code: "", at: 0 });
+  const onCodeRef = useRef(onCode);
+  onCodeRef.current = onCode;
+
   useEffect(() => {
-    let scanner: any; let done = false;
-    (async () => {
+    let cancelled = false;
+    const stopCurrent = async () => {
+      const sc = scannerRef.current;
+      if (!sc) return;
+      try { if (sc.isScanning) await sc.stop(); } catch {}
+      try { sc.clear(); } catch {}
+    };
+    runRef.current = runRef.current.then(async () => {
+      await stopCurrent();
+      if (cancelled) return;
       try {
-        const { Html5Qrcode } = await import("html5-qrcode");
-        scanner = new Html5Qrcode("qr-reader");
-        await scanner.start({ facingMode: "environment" }, { fps: 10, qrbox: { width: 260, height: 160 } }, (text: string) => {
-          if (done) return; done = true; onCode(text);
+        const { Html5Qrcode, Html5QrcodeSupportedFormats: F } = await import("html5-qrcode");
+        if (cancelled) return;
+        if (!scannerRef.current) {
+          scannerRef.current = new Html5Qrcode("reader", {
+            verbose: false,
+            formatsToSupport: [F.CODE_128, F.CODE_39, F.EAN_13, F.EAN_8, F.ITF, F.QR_CODE],
+          });
+        }
+        if (!cams.length) Html5Qrcode.getCameras().then((c) => !cancelled && setCams(c)).catch(() => {});
+        const source = camIdx >= 0 && cams[camIdx] ? { deviceId: { exact: cams[camIdx]!.id } } : { facingMode: "environment" };
+        await scannerRef.current.start(source, { fps: 10, qrbox: { width: 300, height: 150 } }, (text: string) => {
+          const c = text.trim();
+          const now = Date.now();
+          if (c === lastRef.current.code && now - lastRef.current.at < 2000) return;
+          lastRef.current = { code: c, at: now };
+          onCodeRef.current(c);
         }, () => {});
-      } catch (e: any) { setErr(e?.message ?? String(e)); }
-    })();
-    return () => { if (scanner) scanner.stop().catch(() => {}).finally(() => scanner.clear?.()); };
+        if (cancelled) await stopCurrent();
+        setErr(null);
+      } catch (e: any) {
+        const m = String(e?.message ?? e);
+        setErr(/permission|notallowed/i.test(m) ? "A permissão da câmera foi negada. Libere o acesso à câmera nas configurações do navegador e tente de novo." : "Não foi possível abrir a câmera: " + m);
+      }
+    });
+    return () => { cancelled = true; runRef.current = runRef.current.then(stopCurrent); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [camIdx]);
+
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
       <DialogContent>
         <DialogHeader><DialogTitle>Aponte para o código</DialogTitle></DialogHeader>
-        <div id="qr-reader" className="w-full overflow-hidden rounded-xl bg-muted" />
-        {err && <p className="text-sm text-destructive">Não foi possível abrir a câmera: {err}. Verifique a permissão do navegador.</p>}
-        <Button variant="outline" onClick={onClose}>Cancelar</Button>
+        <div id="reader" className="w-full overflow-hidden rounded-xl bg-muted" />
+        {err && <p className="text-sm text-destructive">{err}</p>}
+        <p className="text-xs text-muted-foreground">A câmera continua aberta para ler o próximo item.</p>
+        <div className="grid grid-cols-2 gap-2">
+          <Button variant="outline" disabled={cams.length < 2} onClick={() => setCamIdx((i) => (i + 1) % cams.length)}>Trocar câmera</Button>
+          <Button onClick={onClose}>Fechar câmera</Button>
+        </div>
       </DialogContent>
     </Dialog>
   );
