@@ -14,7 +14,180 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      equipamentos: {
+        Row: {
+          created_at: string
+          descricao: string | null
+          estado: string
+          id: string
+          nome: string
+          setor_id: string | null
+          tombamento: string
+          updated_at: string
+          usuario: string | null
+        }
+        Insert: {
+          created_at?: string
+          descricao?: string | null
+          estado?: string
+          id?: string
+          nome: string
+          setor_id?: string | null
+          tombamento: string
+          updated_at?: string
+          usuario?: string | null
+        }
+        Update: {
+          created_at?: string
+          descricao?: string | null
+          estado?: string
+          id?: string
+          nome?: string
+          setor_id?: string | null
+          tombamento?: string
+          updated_at?: string
+          usuario?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "equipamentos_setor_id_fkey"
+            columns: ["setor_id"]
+            isOneToOne: false
+            referencedRelation: "setores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      historico: {
+        Row: {
+          acao: string
+          created_at: string
+          detalhes: string | null
+          equipamento_id: string | null
+          id: string
+          usuario_email: string | null
+        }
+        Insert: {
+          acao: string
+          created_at?: string
+          detalhes?: string | null
+          equipamento_id?: string | null
+          id?: string
+          usuario_email?: string | null
+        }
+        Update: {
+          acao?: string
+          created_at?: string
+          detalhes?: string | null
+          equipamento_id?: string | null
+          id?: string
+          usuario_email?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "historico_equipamento_id_fkey"
+            columns: ["equipamento_id"]
+            isOneToOne: false
+            referencedRelation: "equipamentos"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inventario_itens: {
+        Row: {
+          conferido_em: string
+          equipamento_id: string
+          id: string
+          inventario_id: string
+          transferido: boolean
+        }
+        Insert: {
+          conferido_em?: string
+          equipamento_id: string
+          id?: string
+          inventario_id: string
+          transferido?: boolean
+        }
+        Update: {
+          conferido_em?: string
+          equipamento_id?: string
+          id?: string
+          inventario_id?: string
+          transferido?: boolean
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventario_itens_equipamento_id_fkey"
+            columns: ["equipamento_id"]
+            isOneToOne: false
+            referencedRelation: "equipamentos"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "inventario_itens_inventario_id_fkey"
+            columns: ["inventario_id"]
+            isOneToOne: false
+            referencedRelation: "inventarios"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      inventarios: {
+        Row: {
+          criado_por: string | null
+          finalizado_em: string | null
+          id: string
+          iniciado_em: string
+          setor_id: string
+        }
+        Insert: {
+          criado_por?: string | null
+          finalizado_em?: string | null
+          id?: string
+          iniciado_em?: string
+          setor_id: string
+        }
+        Update: {
+          criado_por?: string | null
+          finalizado_em?: string | null
+          id?: string
+          iniciado_em?: string
+          setor_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "inventarios_setor_id_fkey"
+            columns: ["setor_id"]
+            isOneToOne: false
+            referencedRelation: "setores"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      setores: {
+        Row: {
+          created_at: string
+          id: string
+          nome: string
+          responsavel: string | null
+          sigla: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          nome: string
+          responsavel?: string | null
+          sigla?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          nome?: string
+          responsavel?: string | null
+          sigla?: string | null
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
