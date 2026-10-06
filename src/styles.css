@@ -65,15 +65,15 @@
   --color-warning-foreground: var(--warning-foreground);
   --color-warning-soft: var(--warning-soft);
   --color-pending: var(--pending);
-  --font-sans: var(--font-sans);
-  --font-mono: var(--font-mono);
+  --font-sans: var(--app-sans);
+  --font-mono: var(--app-mono);
   --color-sidebar-ring: var(--sidebar-ring);
 }
 
 :root {
   --radius: 0.75rem;
-  --font-sans: "IBM Plex Sans", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+  --app-sans: "IBM Plex Sans", system-ui, sans-serif;
+  --app-mono: "IBM Plex Mono", ui-monospace, monospace;
   --background: oklch(0.975 0.006 230);
   --foreground: oklch(0.22 0.03 245);
   --card: oklch(1 0 0);
@@ -160,3 +160,10 @@
     color: var(--color-foreground);
   }
 }
+
+@layer base {
+  body { font-family: var(--app-sans); }
+}
+
+@keyframes pop-in { from { transform: scale(.96); opacity: 0 } to { transform: scale(1); opacity: 1 } }
+@utility animate-pop { animation: pop-in .25s ease-out; }
