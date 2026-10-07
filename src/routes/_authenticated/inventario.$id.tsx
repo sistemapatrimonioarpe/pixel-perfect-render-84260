@@ -300,7 +300,7 @@ function CameraScanner({ onClose, onCode }: { onClose: () => void; onCode: (c: s
   const [lido, setLido] = useState("");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [devIdx, setDevIdx] = useState(-1);
-  const [caps, setCaps] = useState<{ zoom?: { min: number; max: number }; torch?: boolean }>({});
+  const [caps, setCaps] = useState<{ zoom?: { min: number; max: number } | undefined; torch?: boolean }>({});
   const [zoom, setZoom] = useState(1);
   const [torch, setTorch] = useState(false);
 
