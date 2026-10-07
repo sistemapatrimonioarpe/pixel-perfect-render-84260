@@ -2,8 +2,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, ArrowLeft, Camera, Check, CheckCircle2, Download, Flag, PackagePlus, ScanLine, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Camera, Check, Flashlight, ImageIcon, CheckCircle2, Download, Flag, PackagePlus, ScanLine, X } from "lucide-react";
 import { db, exportRows, fetchAll, fmtDate, feedback, logHistorico, useRealtime, type Equipamento, type Inventario, type InventarioItem, type Setor } from "@/lib/patrimonio";
+import { decodeFile, getDecoder, normalizarCodigo } from "@/lib/barcode";
 import { ErrorBox, Loading } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,10 +16,11 @@ export const Route = createFileRoute("/_authenticated/inventario/$id")({
   component: InventarioSetor,
 });
 
-type Scan =
+type Scan = { lido: string } & (
   | { kind: "ok"; equip: Equipamento; repetido: boolean }
   | { kind: "outro"; equip: Equipamento; setorAtual?: Setor | undefined }
-  | { kind: "nao"; codigo: string };
+  | { kind: "nao"; codigo: string }
+  | { kind: "escolha"; opcoes: Equipamento[] });
 
 function InventarioSetor() {
   const { id } = Route.useParams();
@@ -71,28 +73,50 @@ function InventarioSetor() {
     return !error;
   }
 
+  async function avaliar(e: Equipamento, lido: string) {
+    if (!d) return;
+    if (e.setor_id !== d.inv.setor_id) {
+      feedback(false); setDestino(d.inv.setor_id);
+      setScan({ lido, kind: "outro", equip: e, setorAtual: d.setores.find((s) => s.id === e.setor_id) });
+      return;
+    }
+    const ja = conferidos.has(e.id);
+    if (!ja) await conferir(e);
+    feedback(true);
+    setScan({ lido, kind: "ok", equip: e, repetido: ja });
+  }
+
   async function processar(raw: string) {
-    const c = raw.trim();
+    const lido = raw.trim();
+    const c = normalizarCodigo(raw);
     if (!c || !d || busy.current) return;
     if (finalizado) return void toast.error("Este inventário já foi finalizado");
     busy.current = true;
     try {
-      const { data, error } = await db.from("equipamentos").select("*").eq("tombamento", c).maybeSingle();
+      const { data, error } = await db.from("equipamentos").select("*").eq("tombamento_normalizado", c).limit(1);
       if (error) throw error;
-      if (!data) { feedback(false); setScan({ kind: "nao", codigo: c }); return; }
-      const e = data as Equipamento;
-      if (e.setor_id !== d.inv.setor_id) {
-        feedback(false); setDestino(d.inv.setor_id);
-        setScan({ kind: "outro", equip: e, setorAtual: d.setores.find((s) => s.id === e.setor_id) });
-        return;
+      let e = data?.[0] as Equipamento | undefined;
+      if (!e) {
+        const r = await db.from("equipamentos").select("*").ilike("tombamento_normalizado", `%${c}%`).order("tombamento").limit(30);
+        if (r.error) throw r.error;
+        const op = (r.data ?? []) as Equipamento[];
+        if (op.length > 1) { feedback(false); setScan({ lido, kind: "escolha", opcoes: op }); return; }
+        e = op[0];
       }
-      const ja = conferidos.has(e.id);
-      if (!ja) await conferir(e);
-      feedback(true);
-      setScan({ kind: "ok", equip: e, repetido: ja });
+      if (!e) { feedback(false); setScan({ lido, kind: "nao", codigo: lido }); return; }
+      await avaliar(e, lido);
     } catch (err: any) {
       feedback(false); toast.error("Erro: " + err.message);
     } finally { busy.current = false; }
+  }
+
+  async function fotoEtiqueta(file?: File) {
+    if (!file) return;
+    try {
+      const code = await decodeFile(file);
+      if (!code) { feedback(false); toast.error("Não foi possível ler o código na foto. Tente aproximar e evitar reflexo."); return; }
+      processar(code);
+    } catch (err: any) { toast.error("Erro ao ler a foto: " + err.message); }
   }
 
   async function transferir() {
@@ -102,7 +126,7 @@ function InventarioSetor() {
     if (error) return void toast.error(error.message);
     await logHistorico(scan.equip.id, "Transferência", `De ${scan.setorAtual?.nome ?? "sem setor"} para ${alvo?.nome}`);
     const e = { ...scan.equip, setor_id: destino };
-    if (destino === d.inv.setor_id) { await conferir(e, true); feedback(true); setScan({ kind: "ok", equip: e, repetido: false }); }
+    if (destino === d.inv.setor_id) { await conferir(e, true); feedback(true); setScan({ lido: scan.lido, kind: "ok", equip: e, repetido: false }); }
     else { toast.success(`Transferido para ${alvo?.nome}`); setScan(null); }
   }
 
@@ -151,14 +175,18 @@ function InventarioSetor() {
         {!finalizado && (
           <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); processar(codigo); setCodigo(""); }}>
             <div className="relative flex-1"><ScanLine className="absolute left-3 top-3.5 text-muted-foreground" size={20} />
-              <Input ref={inputRef} autoFocus value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Bipe ou digite o tombamento" className="h-12 pl-11 font-mono text-lg" inputMode="numeric" /></div>
-            <Button type="button" size="lg" className="h-12" onClick={() => setCamera(true)}><Camera /><span className="hidden sm:inline">Escanear com a câmera</span></Button>
+              <Input ref={inputRef} autoFocus value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Bipe ou digite o tombamento (com ou sem pontos)" className="h-12 pl-11 font-mono text-lg" /></div>
+            <Button type="button" size="lg" className="h-12" onClick={() => setCamera(true)}><Camera /><span className="hidden sm:inline">Câmera</span></Button>
+            <label className="inline-flex h-12 cursor-pointer items-center gap-2 rounded-md border bg-card px-3 text-sm font-medium">
+              <ImageIcon size={18} /><span className="hidden sm:inline">Tirar foto da etiqueta</span>
+              <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { fotoEtiqueta(e.target.files?.[0]); e.target.value = ""; }} />
+            </label>
           </form>
         )}
       </div>
 
       {scan && <ScanCard scan={scan} setor={setor} setores={d!.setores} destino={destino} setDestino={setDestino}
-        onTransfer={transferir} onCadastrar={(c) => setNovo({ tombamento: c, setor_id: d!.inv.setor_id, estado: "Bom" })} onClose={() => setScan(null)} />}
+        onTransfer={transferir} onEscolher={(e) => avaliar(e, scan.lido)} onCadastrar={(c) => setNovo({ tombamento: c, setor_id: d!.inv.setor_id, estado: "Bom" })} onClose={() => setScan(null)} />}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-xl border bg-card p-1">
@@ -208,15 +236,27 @@ function InventarioSetor() {
   );
 }
 
-function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onCadastrar, onClose }: {
+function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onEscolher, onCadastrar, onClose }: {
   scan: Scan; setor?: Setor | undefined; setores: Setor[]; destino: string; setDestino: (v: string) => void;
-  onTransfer: () => void; onCadastrar: (c: string) => void; onClose: () => void;
+  onTransfer: () => void; onEscolher: (e: Equipamento) => void; onCadastrar: (c: string) => void; onClose: () => void;
 }) {
-  const tone = scan.kind === "ok" ? "border-success bg-success-soft" : scan.kind === "outro" ? "border-warning bg-warning-soft" : "border-destructive bg-destructive/10";
+  const tone = scan.kind === "escolha" ? "border-primary bg-card" : scan.kind === "ok" ? "border-success bg-success-soft" : scan.kind === "outro" ? "border-warning bg-warning-soft" : "border-destructive bg-destructive/10";
   return (
     <div className={`relative mt-3 rounded-2xl border-2 p-4 animate-pop ${tone}`}>
       <button onClick={onClose} className="absolute right-3 top-3 text-muted-foreground" aria-label="Fechar"><X size={18} /></button>
-      {scan.kind === "nao" ? (
+      <div className="mb-2 text-xs text-muted-foreground">Código lido: <span className="font-mono font-semibold text-foreground">{scan.lido}</span></div>
+      {scan.kind === "escolha" ? (
+        <div>
+          <div className="font-semibold">Vários equipamentos parecidos — escolha o correto:</div>
+          <div className="mt-2 max-h-64 divide-y overflow-y-auto rounded-xl border bg-card">
+            {scan.opcoes.map((o) => (
+              <button key={o.id} onClick={() => onEscolher(o)} className="block w-full p-3 text-left hover:bg-muted">
+                <span className="font-mono font-semibold">{o.tombamento}</span> <span className="text-sm text-muted-foreground">· {o.nome}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : scan.kind === "nao" ? (
         <div>
           <div className="flex items-center gap-2 font-semibold text-destructive"><AlertTriangle size={20} />Não cadastrado</div>
           <p className="mt-1 text-sm">O tombamento <span className="font-mono font-semibold">{scan.codigo}</span> não existe no sistema.</p>
@@ -251,64 +291,90 @@ function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onCad
 }
 
 function CameraScanner({ onClose, onCode }: { onClose: () => void; onCode: (c: string) => void }) {
-  const [err, setErr] = useState<string | null>(null);
-  const [cams, setCams] = useState<{ id: string; label: string }[]>([]);
-  const [camIdx, setCamIdx] = useState(-1);
-  const scannerRef = useRef<any>(null);
-  const runRef = useRef<Promise<void>>(Promise.resolve());
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
   const lastRef = useRef({ code: "", at: 0 });
   const onCodeRef = useRef(onCode);
   onCodeRef.current = onCode;
+  const [err, setErr] = useState<string | null>(null);
+  const [lido, setLido] = useState("");
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [devIdx, setDevIdx] = useState(-1);
+  const [caps, setCaps] = useState<{ zoom?: { min: number; max: number } | undefined; torch?: boolean }>({});
+  const [zoom, setZoom] = useState(1);
+  const [torch, setTorch] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
-    const stopCurrent = async () => {
-      const sc = scannerRef.current;
-      if (!sc) return;
-      try { if (sc.isScanning) await sc.stop(); } catch {}
-      try { sc.clear(); } catch {}
-    };
-    runRef.current = runRef.current.then(async () => {
-      await stopCurrent();
-      if (cancelled) return;
+    let timer: ReturnType<typeof setInterval> | undefined;
+    const stop = () => { streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null; };
+    (async () => {
+      stop();
       try {
-        const { Html5Qrcode, Html5QrcodeSupportedFormats: F } = await import("html5-qrcode");
-        if (cancelled) return;
-        if (!scannerRef.current) {
-          scannerRef.current = new Html5Qrcode("reader", {
-            verbose: false,
-            formatsToSupport: [F.CODE_128, F.CODE_39, F.EAN_13, F.EAN_8, F.ITF, F.QR_CODE],
-          });
-        }
-        if (!cams.length) Html5Qrcode.getCameras().then((c) => !cancelled && setCams(c)).catch(() => {});
-        const source = camIdx >= 0 && cams[camIdx] ? { deviceId: { exact: cams[camIdx]!.id } } : { facingMode: "environment" };
-        await scannerRef.current.start(source, { fps: 10, qrbox: { width: 300, height: 150 } }, (text: string) => {
-          const c = text.trim();
-          const now = Date.now();
-          if (c === lastRef.current.code && now - lastRef.current.at < 2000) return;
-          lastRef.current = { code: c, at: now };
-          onCodeRef.current(c);
-        }, () => {});
-        if (cancelled) await stopCurrent();
+        const dev = devIdx >= 0 ? devices[devIdx] : undefined;
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { ...(dev ? { deviceId: { exact: dev.deviceId } } : { facingMode: "environment" }), width: { ideal: 1920 }, height: { ideal: 1080 } },
+        });
+        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
+        streamRef.current = stream;
+        const track = stream.getVideoTracks()[0]!;
+        const c: any = track.getCapabilities?.() ?? {};
+        try { if (c.focusMode?.includes("continuous")) await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] }); } catch {}
+        setCaps({ zoom: c.zoom ? { min: c.zoom.min, max: c.zoom.max } : undefined, torch: !!c.torch });
+        setZoom(1); setTorch(false);
+        const v = videoRef.current!;
+        v.srcObject = stream;
+        await v.play().catch(() => {});
+        if (!devices.length) navigator.mediaDevices.enumerateDevices().then((d) => !cancelled && setDevices(d.filter((x) => x.kind === "videoinput"))).catch(() => {});
+        const decode = await getDecoder();
+        let running = false;
+        timer = setInterval(async () => {
+          if (running || cancelled || !v.videoWidth) return;
+          running = true;
+          try {
+            const text = await decode(v);
+            if (text) {
+              const t = text.trim(); const now = Date.now();
+              setLido(t);
+              if (!(t === lastRef.current.code && now - lastRef.current.at < 2000)) {
+                lastRef.current = { code: t, at: now };
+                onCodeRef.current(t);
+              } else lastRef.current.at = now;
+            }
+          } catch {} finally { running = false; }
+        }, 80);
         setErr(null);
       } catch (e: any) {
-        const m = String(e?.message ?? e);
-        setErr(/permission|notallowed/i.test(m) ? "A permissão da câmera foi negada. Libere o acesso à câmera nas configurações do navegador e tente de novo." : "Não foi possível abrir a câmera: " + m);
+        const name = e?.name ?? "";
+        setErr(name === "NotAllowedError" || /permission/i.test(String(e?.message)) ? "A permissão da câmera foi negada. Libere o acesso à câmera nas configurações do navegador e tente de novo." : "Não foi possível abrir a câmera: " + (e?.message ?? e));
       }
-    });
-    return () => { cancelled = true; runRef.current = runRef.current.then(stopCurrent); };
+    })();
+    return () => { cancelled = true; if (timer) clearInterval(timer); stop(); };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [camIdx]);
+  }, [devIdx]);
+
+  async function apply(c: Record<string, unknown>) {
+    const track = streamRef.current?.getVideoTracks()[0];
+    try { await track?.applyConstraints({ advanced: [c as any] }); } catch {}
+  }
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader><DialogTitle>Aponte para o código</DialogTitle></DialogHeader>
-        <div id="reader" className="w-full overflow-hidden rounded-xl bg-muted" />
+      <DialogContent className="max-w-2xl">
+        <DialogHeader><DialogTitle>Aponte para o código de barras</DialogTitle></DialogHeader>
+        <video ref={videoRef} playsInline muted className="aspect-video w-full rounded-xl bg-muted object-cover" />
+        <div className="text-sm">Código lido: <span className="font-mono font-semibold">{lido || "—"}</span></div>
         {err && <p className="text-sm text-destructive">{err}</p>}
-        <p className="text-xs text-muted-foreground">A câmera continua aberta para ler o próximo item.</p>
+        <div className="flex flex-wrap gap-2">
+          {caps.zoom && [1, 2, 3].filter((z) => z <= caps.zoom!.max).map((z) => (
+            <Button key={z} size="sm" variant={zoom === z ? "default" : "outline"} onClick={() => { setZoom(z); apply({ zoom: Math.max(caps.zoom!.min, z) }); }}>{z}x</Button>
+          ))}
+          {caps.torch && <Button size="sm" variant={torch ? "default" : "outline"} onClick={() => { setTorch(!torch); apply({ torch: !torch }); }}><Flashlight />Lanterna</Button>}
+        </div>
+        <p className="text-xs text-muted-foreground">A câmera continua aberta para ler o próximo item. Se a placa refletir, deixe a lanterna desligada e incline um pouco o celular.</p>
         <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" disabled={cams.length < 2} onClick={() => setCamIdx((i) => (i + 1) % cams.length)}>Trocar câmera</Button>
+          <Button variant="outline" disabled={devices.length < 2} onClick={() => setDevIdx((i) => (i + 1) % devices.length)}>Trocar câmera</Button>
           <Button onClick={onClose}>Fechar câmera</Button>
         </div>
       </DialogContent>

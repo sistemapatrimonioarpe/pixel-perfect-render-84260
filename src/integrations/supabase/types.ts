@@ -23,6 +23,7 @@ export type Database = {
           nome: string
           setor_id: string | null
           tombamento: string
+          tombamento_normalizado: string | null
           updated_at: string
           usuario: string | null
         }
@@ -34,6 +35,7 @@ export type Database = {
           nome: string
           setor_id?: string | null
           tombamento: string
+          tombamento_normalizado?: string | null
           updated_at?: string
           usuario?: string | null
         }
@@ -45,6 +47,7 @@ export type Database = {
           nome?: string
           setor_id?: string | null
           tombamento?: string
+          tombamento_normalizado?: string | null
           updated_at?: string
           usuario?: string | null
         }

@@ -1,0 +1,2 @@
+ALTER TABLE public.equipamentos ADD COLUMN IF NOT EXISTS tombamento_normalizado text GENERATED ALWAYS AS (upper(regexp_replace(tombamento, '[^A-Za-z0-9]', '', 'g'))) STORED;
+CREATE INDEX IF NOT EXISTS equipamentos_tomb_norm_idx ON public.equipamentos (tombamento_normalizado);
