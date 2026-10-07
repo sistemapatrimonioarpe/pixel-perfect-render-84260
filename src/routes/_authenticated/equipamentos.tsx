@@ -15,7 +15,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 
 export const Route = createFileRoute("/_authenticated/equipamentos")({
   head: () => ({ meta: [{ title: "Equipamentos — Controle de Patrimônio" }, { name: "description", content: "Tombamentos: busca, cadastro, importação e exportação." }] }),
-  validateSearch: (s: Record<string, unknown>) => ({ setor: typeof s.setor === "string" ? s.setor : undefined }),
+  validateSearch: (s: Record<string, unknown>) => ({ setor: typeof s['setor'] === "string" ? (s['setor'] as string) : undefined }),
   component: Equipamentos,
 });
 
