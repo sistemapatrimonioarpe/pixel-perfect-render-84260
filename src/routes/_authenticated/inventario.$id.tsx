@@ -2,9 +2,10 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { AlertTriangle, ArrowLeft, Camera, Check, Flashlight, ImageIcon, CheckCircle2, Download, Flag, PackagePlus, ScanLine, X } from "lucide-react";
+import { AlertTriangle, ArrowLeft, Camera, Check, ImageIcon, Keyboard, CheckCircle2, Download, Flag, PackagePlus, ScanLine, X } from "lucide-react";
 import { db, exportRows, fetchAll, fmtDate, feedback, logHistorico, useRealtime, type Equipamento, type Inventario, type InventarioItem, type Setor } from "@/lib/patrimonio";
-import { decodeFile, getDecoder, normalizarCodigo } from "@/lib/barcode";
+import { decodeFile, normalizarCodigo } from "@/lib/barcode";
+import { CameraScanner } from "@/components/CameraScanner";
 import { ErrorBox, Loading } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,8 +17,10 @@ export const Route = createFileRoute("/_authenticated/inventario/$id")({
   component: InventarioSetor,
 });
 
+type Metodo = "Pistola" | "Digitado" | "Câmera" | "Foto" | "OCR" | "Lista";
+
 type Scan = { lido: string } & (
-  | { kind: "ok"; equip: Equipamento; repetido: boolean }
+  | { kind: "ok"; equip: Equipamento; repetido: boolean; transferido?: boolean }
   | { kind: "outro"; equip: Equipamento; setorAtual?: Setor | undefined }
   | { kind: "nao"; codigo: string }
   | { kind: "escolha"; opcoes: Equipamento[] });
@@ -47,8 +50,11 @@ function InventarioSetor() {
   const [novo, setNovo] = useState<Partial<Equipamento> | null>(null);
   const [relatorio, setRelatorio] = useState(false);
   const [destino, setDestino] = useState("");
+  const [teclado, setTeclado] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const busy = useRef(false);
+  const ultimaRef = useRef({ c: "", at: 0 });
+  const [ultimo, setUltimo] = useState<{ bruto: string; metodo: Metodo; resultado: string; tom: "ok" | "warn" | "err" } | null>(null);
 
   const d = q.data;
   const setor = d?.setores.find((s) => s.id === d.inv.setor_id);
@@ -73,24 +79,32 @@ function InventarioSetor() {
     return !error;
   }
 
-  async function avaliar(e: Equipamento, lido: string) {
+  async function avaliar(e: Equipamento, lido: string, metodo: Metodo) {
     if (!d) return;
     if (e.setor_id !== d.inv.setor_id) {
       feedback(false); setDestino(d.inv.setor_id);
-      setScan({ lido, kind: "outro", equip: e, setorAtual: d.setores.find((s) => s.id === e.setor_id) });
+      const sa = d.setores.find((s) => s.id === e.setor_id);
+      setUltimo({ bruto: lido, metodo, resultado: `Pertence ao setor ${sa?.nome ?? "(sem setor)"}`, tom: "warn" });
+      setScan({ lido, kind: "outro", equip: e, setorAtual: sa });
       return;
     }
     const ja = conferidos.has(e.id);
-    if (!ja) await conferir(e);
-    feedback(true);
+    if (!ja) { await conferir(e); feedback(true); } else feedback(false);
+    setUltimo({ bruto: lido, metodo, resultado: ja ? `Já conferido · ${e.tombamento}` : `Encontrado · ${e.tombamento}`, tom: ja ? "warn" : "ok" });
     setScan({ lido, kind: "ok", equip: e, repetido: ja });
+    setTimeout(() => document.getElementById(`item-${e.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 300);
   }
 
-  async function processar(raw: string) {
+  /** Central read handler: every method (scanner gun, typed, camera, photo, OCR) calls this. */
+  async function processarLeitura(raw: string, metodo: Metodo = "Digitado") {
     const lido = raw.trim();
     const c = normalizarCodigo(raw);
-    if (!c || !d || busy.current) return;
-    if (finalizado) return void toast.error("Este inventário já foi finalizado");
+    if (!c || !d) return;
+    const now = Date.now();
+    if (c === ultimaRef.current.c && now - ultimaRef.current.at < 2000) return;
+    ultimaRef.current = { c, at: now };
+    if (finalizado) { setUltimo({ bruto: lido, metodo, resultado: "Inventário finalizado", tom: "err" }); return void toast.error("Este inventário já foi finalizado"); }
+    if (busy.current) return;
     busy.current = true;
     try {
       const { data, error } = await db.from("equipamentos").select("*").eq("tombamento_normalizado", c).limit(1);
@@ -100,22 +114,44 @@ function InventarioSetor() {
         const r = await db.from("equipamentos").select("*").ilike("tombamento_normalizado", `%${c}%`).order("tombamento").limit(30);
         if (r.error) throw r.error;
         const op = (r.data ?? []) as Equipamento[];
-        if (op.length > 1) { feedback(false); setScan({ lido, kind: "escolha", opcoes: op }); return; }
+        if (op.length > 1) { feedback(false); setUltimo({ bruto: lido, metodo, resultado: `${op.length} parecidos — escolha`, tom: "warn" }); setScan({ lido, kind: "escolha", opcoes: op }); return; }
         e = op[0];
       }
-      if (!e) { feedback(false); setScan({ lido, kind: "nao", codigo: lido }); return; }
-      await avaliar(e, lido);
+      if (!e) { feedback(false); setUltimo({ bruto: lido, metodo, resultado: "Tombamento não cadastrado", tom: "err" }); setScan({ lido, kind: "nao", codigo: lido }); return; }
+      await avaliar(e, lido, metodo);
     } catch (err: any) {
-      feedback(false); toast.error("Erro: " + err.message);
+      feedback(false); setUltimo({ bruto: lido, metodo, resultado: "Erro: " + err.message, tom: "err" }); toast.error("Erro: " + err.message);
     } finally { busy.current = false; }
   }
+
+  // Scanner gun (keyboard wedge): global keydown buffer, no focus needed.
+  const procRef = useRef(processarLeitura);
+  procRef.current = processarLeitura;
+  useEffect(() => {
+    let buf = "", last = 0;
+    const onKey = (ev: KeyboardEvent) => {
+      const t = ev.target as HTMLElement | null;
+      if (t === inputRef.current) return; // the scan field handles itself
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+      const now = performance.now();
+      if (now - last > 100) buf = "";
+      last = now;
+      if (ev.key === "Enter" || ev.key === "Tab") {
+        if (buf.length >= 4) { ev.preventDefault(); ev.stopPropagation(); procRef.current(buf, "Pistola"); }
+        buf = ""; return;
+      }
+      if (ev.key.length === 1 && !ev.ctrlKey && !ev.metaKey && !ev.altKey) { buf += ev.key; ev.preventDefault(); ev.stopPropagation(); }
+    };
+    document.addEventListener("keydown", onKey, true);
+    return () => document.removeEventListener("keydown", onKey, true);
+  }, []);
 
   async function fotoEtiqueta(file?: File) {
     if (!file) return;
     try {
       const code = await decodeFile(file);
-      if (!code) { feedback(false); toast.error("Não foi possível ler o código na foto. Tente aproximar e evitar reflexo."); return; }
-      processar(code);
+      if (!code) { feedback(false); setUltimo({ bruto: "—", metodo: "Foto", resultado: "Não foi possível ler a foto", tom: "err" }); toast.error("Não foi possível ler o código na foto. Tente aproximar e evitar reflexo."); return; }
+      processarLeitura(code, "Foto");
     } catch (err: any) { toast.error("Erro ao ler a foto: " + err.message); }
   }
 
@@ -126,7 +162,7 @@ function InventarioSetor() {
     if (error) return void toast.error(error.message);
     await logHistorico(scan.equip.id, "Transferência", `De ${scan.setorAtual?.nome ?? "sem setor"} para ${alvo?.nome}`);
     const e = { ...scan.equip, setor_id: destino };
-    if (destino === d.inv.setor_id) { await conferir(e, true); feedback(true); setScan({ lido: scan.lido, kind: "ok", equip: e, repetido: false }); }
+    if (destino === d.inv.setor_id) { await conferir(e, true); feedback(true); setUltimo({ bruto: scan.lido, metodo: "Lista", resultado: `Transferido e conferido · ${e.tombamento}`, tom: "ok" }); setScan({ lido: scan.lido, kind: "ok", equip: e, repetido: false }); setTimeout(() => document.getElementById(`item-${e.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 300); }
     else { toast.success(`Transferido para ${alvo?.nome}`); setScan(null); }
   }
 
@@ -173,20 +209,32 @@ function InventarioSetor() {
         </div>
 
         {!finalizado && (
-          <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); processar(codigo); setCodigo(""); }}>
+          <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); processarLeitura(codigo, "Digitado"); setCodigo(""); }}>
             <div className="relative flex-1"><ScanLine className="absolute left-3 top-3.5 text-muted-foreground" size={20} />
-              <Input ref={inputRef} autoFocus value={codigo} onChange={(e) => setCodigo(e.target.value)} placeholder="Bipe ou digite o tombamento (com ou sem pontos)" className="h-12 pl-11 font-mono text-lg" /></div>
-            <Button type="button" size="lg" className="h-12" onClick={() => setCamera(true)}><Camera /><span className="hidden sm:inline">Câmera</span></Button>
+              <Input ref={inputRef} autoFocus value={codigo} onChange={(e) => setCodigo(e.target.value)} inputMode={teclado ? "text" : "none"} placeholder="Digitar ou bipar tombamento" className="h-12 pl-11 font-mono text-lg" /></div>
+            <Button type="button" size="lg" className="h-12" onClick={() => setCamera(true)}><Camera /><span className="hidden sm:inline">Abrir câmera</span></Button>
             <label className="inline-flex h-12 cursor-pointer items-center gap-2 rounded-md border bg-card px-3 text-sm font-medium">
-              <ImageIcon size={18} /><span className="hidden sm:inline">Tirar foto da etiqueta</span>
+              <ImageIcon size={18} /><span className="hidden sm:inline">Foto da etiqueta</span>
               <input type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => { fotoEtiqueta(e.target.files?.[0]); e.target.value = ""; }} />
             </label>
           </form>
         )}
+        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
+          <span className="inline-flex items-center gap-1 rounded-full bg-success-soft px-2 py-1 font-medium text-success"><ScanLine size={14} />Pistola pronta</span>
+          <span className={`inline-flex items-center gap-1 rounded-full px-2 py-1 font-medium ${camera ? "bg-success-soft text-success" : "bg-muted text-muted-foreground"}`}><Camera size={14} />Câmera {camera ? "ligada" : "desligada"}</span>
+          <button type="button" onClick={() => { setTeclado(!teclado); setTimeout(() => inputRef.current?.focus(), 50); }} className={`inline-flex items-center gap-1 rounded-full px-2 py-1 font-medium ${teclado ? "bg-primary text-primary-foreground" : "bg-muted text-muted-foreground"}`}><Keyboard size={14} />Teclado do celular</button>
+        </div>
+        <div className={`mt-2 rounded-xl border-2 px-3 py-2 text-sm ${!ultimo ? "bg-card" : ultimo.tom === "ok" ? "border-success bg-success-soft" : ultimo.tom === "warn" ? "border-warning bg-warning-soft" : "border-destructive bg-destructive/10"}`}>
+          <div className="flex flex-wrap items-center justify-between gap-x-3">
+            <span>Último código lido: <span className="font-mono font-semibold">{ultimo?.bruto ?? "—"}</span></span>
+            {ultimo && <span className="text-xs text-muted-foreground">{ultimo.metodo === "OCR" ? "Lido por OCR" : `via ${ultimo.metodo}`}</span>}
+          </div>
+          {ultimo && <div className="font-semibold">{ultimo.resultado}</div>}
+        </div>
       </div>
 
       {scan && <ScanCard scan={scan} setor={setor} setores={d!.setores} destino={destino} setDestino={setDestino}
-        onTransfer={transferir} onEscolher={(e) => avaliar(e, scan.lido)} onCadastrar={(c) => setNovo({ tombamento: c, setor_id: d!.inv.setor_id, estado: "Bom" })} onClose={() => setScan(null)} />}
+        onTransfer={transferir} onEscolher={(e) => avaliar(e, scan.lido, "Lista")} onCadastrar={(c) => setNovo({ tombamento: c, setor_id: d!.inv.setor_id, estado: "Bom" })} onClose={() => setScan(null)} />}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-xl border bg-card p-1">
@@ -202,16 +250,16 @@ function InventarioSetor() {
         {lista.map((e) => {
           const ok = conferidos.has(e.id);
           return (
-            <li key={e.id} className={`flex items-center gap-3 p-3 ${ok ? "bg-success-soft/60" : ""}`}>
+            <li key={e.id} id={`item-${e.id}`} className={`flex items-center gap-3 p-3 ${ok ? "bg-success-soft/60" : ""}`}>
               <div className={`grid h-8 w-8 shrink-0 place-items-center rounded-md border-2 ${ok ? "border-success bg-success text-success-foreground" : "border-pending"}`}>{ok && <Check size={18} strokeWidth={3} />}</div>
               <div className="min-w-0 flex-1"><div className="font-mono text-sm font-semibold">{e.tombamento}</div><div className="truncate text-sm text-muted-foreground">{e.nome}{e.usuario && ` · ${e.usuario}`}</div></div>
-              {!ok && !finalizado && <Button size="sm" variant="ghost" onClick={() => processar(e.tombamento)}>Conferir</Button>}
+              {!ok && !finalizado && <Button size="sm" variant="ghost" onClick={() => { ultimaRef.current = { c: "", at: 0 }; processarLeitura(e.tombamento, "Lista"); }}>Conferir</Button>}
             </li>
           );
         })}
       </ul>
 
-      {camera && <CameraScanner onClose={() => setCamera(false)} onCode={(c) => processar(c)} />}
+      {camera && <CameraScanner onClose={() => setCamera(false)} onCode={(c, ocr) => processarLeitura(c, ocr ? "OCR" : "Câmera")} />}
       <EquipamentoDialog value={novo} setores={d!.setores} onClose={() => { setNovo(null); setScan(null); }} />
 
       <Dialog open={relatorio} onOpenChange={setRelatorio}>
@@ -240,7 +288,7 @@ function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onEsc
   scan: Scan; setor?: Setor | undefined; setores: Setor[]; destino: string; setDestino: (v: string) => void;
   onTransfer: () => void; onEscolher: (e: Equipamento) => void; onCadastrar: (c: string) => void; onClose: () => void;
 }) {
-  const tone = scan.kind === "escolha" ? "border-primary bg-card" : scan.kind === "ok" ? "border-success bg-success-soft" : scan.kind === "outro" ? "border-warning bg-warning-soft" : "border-destructive bg-destructive/10";
+  const tone = scan.kind === "escolha" ? "border-primary bg-card" : scan.kind === "ok" ? (scan.repetido ? "border-warning bg-warning-soft" : "border-success bg-success-soft") : scan.kind === "outro" ? "border-warning bg-warning-soft" : "border-destructive bg-destructive/10";
   return (
     <div className={`relative mt-3 rounded-2xl border-2 p-4 animate-pop ${tone}`}>
       <button onClick={onClose} className="absolute right-3 top-3 text-muted-foreground" aria-label="Fechar"><X size={18} /></button>
@@ -258,14 +306,15 @@ function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onEsc
         </div>
       ) : scan.kind === "nao" ? (
         <div>
-          <div className="flex items-center gap-2 font-semibold text-destructive"><AlertTriangle size={20} />Não cadastrado</div>
+          <div className="flex items-center gap-2 font-semibold text-destructive"><AlertTriangle size={20} />Tombamento não cadastrado</div>
           <p className="mt-1 text-sm">O tombamento <span className="font-mono font-semibold">{scan.codigo}</span> não existe no sistema.</p>
           <Button className="mt-3" size="lg" onClick={() => onCadastrar(scan.codigo)}><PackagePlus />Cadastrar equipamento</Button>
         </div>
       ) : (
         <div>
           {scan.kind === "ok" ? (
-            <div className="flex items-center gap-2 font-semibold text-success"><CheckCircle2 size={20} />{scan.repetido ? "Já conferido anteriormente" : "Conferido!"}</div>
+            scan.repetido ? <div className="flex items-center gap-2 font-semibold text-warning-foreground"><AlertTriangle size={20} />Já conferido</div>
+              : <div className="flex items-center gap-2 font-semibold text-success"><CheckCircle2 size={20} />Conferido!</div>
           ) : (
             <div className="flex items-center gap-2 font-semibold text-warning-foreground"><AlertTriangle size={20} />Este equipamento pertence ao setor {scan.setorAtual?.nome ?? "(sem setor)"}</div>
           )}
@@ -290,94 +339,3 @@ function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onEsc
   );
 }
 
-function CameraScanner({ onClose, onCode }: { onClose: () => void; onCode: (c: string) => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const streamRef = useRef<MediaStream | null>(null);
-  const lastRef = useRef({ code: "", at: 0 });
-  const onCodeRef = useRef(onCode);
-  onCodeRef.current = onCode;
-  const [err, setErr] = useState<string | null>(null);
-  const [lido, setLido] = useState("");
-  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
-  const [devIdx, setDevIdx] = useState(-1);
-  const [caps, setCaps] = useState<{ zoom?: { min: number; max: number } | undefined; torch?: boolean }>({});
-  const [zoom, setZoom] = useState(1);
-  const [torch, setTorch] = useState(false);
-
-  useEffect(() => {
-    let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
-    const stop = () => { streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null; };
-    (async () => {
-      stop();
-      try {
-        const dev = devIdx >= 0 ? devices[devIdx] : undefined;
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: { ...(dev ? { deviceId: { exact: dev.deviceId } } : { facingMode: "environment" }), width: { ideal: 1920 }, height: { ideal: 1080 } },
-        });
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        streamRef.current = stream;
-        const track = stream.getVideoTracks()[0]!;
-        const c: any = track.getCapabilities?.() ?? {};
-        try { if (c.focusMode?.includes("continuous")) await track.applyConstraints({ advanced: [{ focusMode: "continuous" } as any] }); } catch {}
-        setCaps({ zoom: c.zoom ? { min: c.zoom.min, max: c.zoom.max } : undefined, torch: !!c.torch });
-        setZoom(1); setTorch(false);
-        const v = videoRef.current!;
-        v.srcObject = stream;
-        await v.play().catch(() => {});
-        if (!devices.length) navigator.mediaDevices.enumerateDevices().then((d) => !cancelled && setDevices(d.filter((x) => x.kind === "videoinput"))).catch(() => {});
-        const decode = await getDecoder();
-        let running = false;
-        timer = setInterval(async () => {
-          if (running || cancelled || !v.videoWidth) return;
-          running = true;
-          try {
-            const text = await decode(v);
-            if (text) {
-              const t = text.trim(); const now = Date.now();
-              setLido(t);
-              if (!(t === lastRef.current.code && now - lastRef.current.at < 2000)) {
-                lastRef.current = { code: t, at: now };
-                onCodeRef.current(t);
-              } else lastRef.current.at = now;
-            }
-          } catch {} finally { running = false; }
-        }, 80);
-        setErr(null);
-      } catch (e: any) {
-        const name = e?.name ?? "";
-        setErr(name === "NotAllowedError" || /permission/i.test(String(e?.message)) ? "A permissão da câmera foi negada. Libere o acesso à câmera nas configurações do navegador e tente de novo." : "Não foi possível abrir a câmera: " + (e?.message ?? e));
-      }
-    })();
-    return () => { cancelled = true; if (timer) clearInterval(timer); stop(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [devIdx]);
-
-  async function apply(c: Record<string, unknown>) {
-    const track = streamRef.current?.getVideoTracks()[0];
-    try { await track?.applyConstraints({ advanced: [c as any] }); } catch {}
-  }
-
-  return (
-    <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-2xl">
-        <DialogHeader><DialogTitle>Aponte para o código de barras</DialogTitle></DialogHeader>
-        <video ref={videoRef} playsInline muted className="aspect-video w-full rounded-xl bg-muted object-cover" />
-        <div className="text-sm">Código lido: <span className="font-mono font-semibold">{lido || "—"}</span></div>
-        {err && <p className="text-sm text-destructive">{err}</p>}
-        <div className="flex flex-wrap gap-2">
-          {caps.zoom && [1, 2, 3].filter((z) => z <= caps.zoom!.max).map((z) => (
-            <Button key={z} size="sm" variant={zoom === z ? "default" : "outline"} onClick={() => { setZoom(z); apply({ zoom: Math.max(caps.zoom!.min, z) }); }}>{z}x</Button>
-          ))}
-          {caps.torch && <Button size="sm" variant={torch ? "default" : "outline"} onClick={() => { setTorch(!torch); apply({ torch: !torch }); }}><Flashlight />Lanterna</Button>}
-        </div>
-        <p className="text-xs text-muted-foreground">A câmera continua aberta para ler o próximo item. Se a placa refletir, deixe a lanterna desligada e incline um pouco o celular.</p>
-        <div className="grid grid-cols-2 gap-2">
-          <Button variant="outline" disabled={devices.length < 2} onClick={() => setDevIdx((i) => (i + 1) % devices.length)}>Trocar câmera</Button>
-          <Button onClick={onClose}>Fechar câmera</Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
