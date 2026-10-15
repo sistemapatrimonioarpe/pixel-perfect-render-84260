@@ -72,7 +72,7 @@ function InventarioSetor() {
   }, [camera, novo, relatorio, scan]);
 
   async function conferir(e: Equipamento, transferido = false) {
-    const { error } = await db.from("inventario_itens").insert({ inventario_id: id, equipamento_id: e.id, transferido });
+    const { error } = await db.from("inventario_itens").upsert({ inventario_id: id, equipamento_id: e.id, transferido }, { onConflict: "inventario_id,equipamento_id" });
     if (error && error.code !== "23505") throw error;
     if (!error) await logHistorico(e.id, "Conferido no inventário", `Setor: ${setor?.nome}`);
     q.refetch();
