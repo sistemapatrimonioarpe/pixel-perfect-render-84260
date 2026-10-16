@@ -61,7 +61,7 @@ export function CameraScanner({ onClose, onCode }: { onClose: () => void; onCode
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | undefined;
-    const stop = () => { streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null; };
+    const stop = () => { setAtivo(false); streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null; };
     (async () => {
       stop();
       try {
@@ -111,7 +111,7 @@ export function CameraScanner({ onClose, onCode }: { onClose: () => void; onCode
             }
           } catch { /* keep scanning */ } finally { running = false; }
         }, 150);
-        setErr(null);
+        setErr(null); setAtivo(true);
       } catch (e: any) {
         const name = e?.name ?? "";
         setErr(name === "NotAllowedError" || /permission/i.test(String(e?.message)) ? "A permissão da câmera foi negada. Libere o acesso à câmera nas configurações do navegador e tente de novo." : "Não foi possível abrir a câmera: " + (e?.message ?? e));
