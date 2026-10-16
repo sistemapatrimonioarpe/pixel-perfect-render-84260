@@ -86,7 +86,7 @@ function Equipamentos() {
         <Sel value={fEstado} onChange={setFEstado} options={[[ALL, "Todos os estados"], ...ESTADOS.map((t) => [t, t] as [string, string])]} />
       </div>
 
-      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : lista.length === 0 ? <Empty>Nenhum equipamento encontrado.</Empty> : (
+      {(!q.data && !q.error) ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : lista.length === 0 ? <Empty>Nenhum equipamento encontrado.</Empty> : (
         <div className="overflow-hidden rounded-2xl border bg-card">
           <table className="w-full text-sm">
             <thead className="hidden bg-muted text-left text-xs uppercase text-muted-foreground md:table-header-group">
@@ -168,7 +168,7 @@ export function HistoricoList({ equipamentoId }: { equipamentoId: string }) {
       if (error) throw error; return data as Historico[];
     },
   });
-  if (q.isLoading) return <Loading />;
+  if ((!q.data && !q.error)) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
   if (!q.data!.length) return <p className="text-sm text-muted-foreground">Sem histórico.</p>;
   return (

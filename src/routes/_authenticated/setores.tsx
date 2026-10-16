@@ -32,7 +32,7 @@ function Setores() {
   return (
     <div>
       <PageHeader title="Setores" subtitle="Unidades e responsáveis" actions={<Button size="lg" onClick={() => setEdit({})}><Plus />Novo setor</Button>} />
-      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : q.data!.se.length === 0 ? <Empty>Nenhum setor cadastrado.</Empty> : (
+      {(!q.data && !q.error) ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : q.data!.se.length === 0 ? <Empty>Nenhum setor cadastrado.</Empty> : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {q.data!.se.map((s) => {
             const n = q.data!.eq.filter((e) => e.setor_id === s.id).length;
