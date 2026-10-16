@@ -71,4 +71,5 @@ export function feedback(ok: boolean) {
     o.start(); o.stop(ctx.currentTime + (ok ? 0.12 : 0.35));
   } catch { /* ignore */ }
   try { navigator.vibrate?.(ok ? 80 : [100, 60, 100]); } catch { /* ignore */ }
+  try { window.dispatchEvent(new CustomEvent("scan-feedback", { detail: ok })); } catch { /* ignore */ }
 }
