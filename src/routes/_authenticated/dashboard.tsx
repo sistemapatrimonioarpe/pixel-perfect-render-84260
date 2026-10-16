@@ -44,9 +44,9 @@ function Dashboard() {
     return { porSetor, tipo: group((e) => e.nome), estado: group((e) => e.estado) };
   }, [q.data]);
 
-  if (q.isLoading) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
-  const { eq, se, inv, hist } = q.data!;
+  if (!q.data || !charts) return <Loading />;
+  const { eq, se, inv, hist } = q.data;
   const eqName = new Map(eq.map((e) => [e.id, `${e.tombamento} · ${e.nome}`]));
 
   return (

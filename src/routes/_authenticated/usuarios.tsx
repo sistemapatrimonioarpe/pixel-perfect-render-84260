@@ -47,7 +47,7 @@ function Usuarios() {
     catch (err: any) { toast.error(err.message); } finally { setLoading(false); }
   }
 
-  if (q.isLoading) return <Loading />;
+  if ((!q.data && !q.error)) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
   const self = form?.id === user.id;
 

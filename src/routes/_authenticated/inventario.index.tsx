@@ -40,7 +40,7 @@ function InventarioHome() {
   return (
     <div>
       <PageHeader title="Inventário" subtitle="Escolha um setor para conferir os bens" />
-      {q.isLoading ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : q.data!.se.length === 0 ? <Empty>Cadastre setores para iniciar um inventário.</Empty> : (
+      {(!q.data && !q.error) ? <Loading /> : q.error ? <ErrorBox error={q.error} /> : q.data!.se.length === 0 ? <Empty>Cadastre setores para iniciar um inventário.</Empty> : (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {q.data!.se.map((s) => {
             const aberto = q.data!.inv.find((i) => i.setor_id === s.id && !i.finalizado_em);

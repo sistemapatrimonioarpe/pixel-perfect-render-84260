@@ -36,7 +36,7 @@ function Mapa() {
     queryKey: ["mapa"],
     queryFn: async () => ({ eq: await fetchAll<Equipamento>("equipamentos", "tombamento"), se: await fetchAll<Setor>("setores", "nome") }),
   });
-  if (q.isLoading) return <Loading />;
+  if ((!q.data && !q.error)) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
   const { eq, se } = q.data!;
   const cont = new Map<string, number>();

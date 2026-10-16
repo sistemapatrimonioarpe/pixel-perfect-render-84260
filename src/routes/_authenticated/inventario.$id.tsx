@@ -182,7 +182,7 @@ function InventarioSetor() {
     })), `inventario-${setor?.sigla || setor?.nome || id}`, kind);
   }
 
-  if (q.isLoading) return <Loading />;
+  if ((!q.data && !q.error)) return <Loading />;
   if (q.error) return <ErrorBox error={q.error} />;
   const completo = pct === 100 && total > 0;
 
