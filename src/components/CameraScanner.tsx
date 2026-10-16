@@ -33,6 +33,15 @@ export function CameraScanner({ onClose, onCode }: { onClose: () => void; onCode
   const [semLeitura, setSemLeitura] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<string | null>(null);
   const [tap, setTap] = useState<{ x: number; y: number; k: number } | null>(null);
+  const [ativo, setAtivo] = useState(false);
+  const [flash, setFlash] = useState<{ ok: boolean; k: number } | null>(null);
+
+  useEffect(() => {
+    let t: ReturnType<typeof setTimeout> | undefined;
+    const h = (e: Event) => { setFlash({ ok: !!(e as CustomEvent).detail, k: Date.now() }); clearTimeout(t); t = setTimeout(() => setFlash(null), 500); };
+    window.addEventListener("scan-feedback", h);
+    return () => { window.removeEventListener("scan-feedback", h); clearTimeout(t); };
+  }, []);
 
   const track = () => streamRef.current?.getVideoTracks()[0];
   async function apply(c: Record<string, unknown>) { try { await track()?.applyConstraints({ advanced: [c as any] }); } catch { /* unsupported */ } }
@@ -135,7 +144,23 @@ export function CameraScanner({ onClose, onCode }: { onClose: () => void; onCode
       </div>
       <div className={`relative overflow-hidden rounded-xl border-4 transition-colors ${borda}`} onPointerDown={tapFocus}>
         <video ref={videoRef} playsInline muted className="aspect-video w-full bg-muted object-cover" />
-        <span className="absolute left-2 top-2 rounded-md bg-background/80 px-2 py-0.5 text-xs font-medium">{estado}</span>
+        {ativo && (() => {
+          const cor = flash?.ok === true ? "rgb(0 220 90)" : flash?.ok === false ? "rgb(255 40 40)" : "rgb(0 220 90)";
+          const laser = flash?.ok === true ? "green" : quality < BLUR ? "yellow" : "red";
+          const corner = { position: "absolute" as const, width: 22, height: 22, borderColor: cor, borderStyle: "solid" };
+          return (
+            <div className="pointer-events-none absolute inset-0">
+              <div key={flash?.k ?? 0} className={`absolute ${flash ? "scan-frame-blink" : ""}`} style={{ left: "7.5%", width: "85%", top: "32.5%", height: "35%", boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)", outline: flash?.ok === false ? `2px solid ${cor}` : undefined }}>
+                <span style={{ ...corner, left: 0, top: 0, borderWidth: "4px 0 0 4px" }} />
+                <span style={{ ...corner, right: 0, top: 0, borderWidth: "4px 4px 0 0" }} />
+                <span style={{ ...corner, left: 0, bottom: 0, borderWidth: "0 0 4px 4px" }} />
+                <span style={{ ...corner, right: 0, bottom: 0, borderWidth: "0 4px 4px 0" }} />
+                {flash?.ok !== false && <div className={`scan-laser ${laser}`} />}
+              </div>
+            </div>
+          );
+        })()}
+        <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-background/80 px-2 py-0.5 text-xs font-medium">{estado}</span>
         {tap && <span key={tap.k} className="pointer-events-none absolute h-16 w-16 -translate-x-1/2 -translate-y-1/2 animate-pop rounded-md border-2 border-warning" style={{ left: `${tap.x * 100}%`, top: `${tap.y * 100}%` }} />}
       </div>
       <div className="mt-2 text-sm">Código lido: <span className="font-mono font-semibold">{lido || "—"}</span></div>
