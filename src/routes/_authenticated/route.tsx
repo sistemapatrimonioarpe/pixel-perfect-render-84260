@@ -2,8 +2,9 @@ import { createFileRoute, Link, Outlet, redirect, useNavigate } from "@tanstack/
 import { useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { BarChart3, Building2, ClipboardCheck, KeyRound, Landmark, LayoutGrid, LogOut, Package, Users } from "lucide-react";
+import { BarChart3, Building2, ClipboardCheck, KeyRound, LayoutGrid, LogOut, Package, Users } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { BrandMark, TricolorStripe } from "@/components/BrandMark";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -51,9 +52,10 @@ function Layout() {
     <div className="min-h-screen md:flex">
       <aside className="hidden w-64 shrink-0 flex-col bg-sidebar text-sidebar-foreground md:flex md:sticky md:top-0 md:h-screen">
         <div className="flex items-center gap-3 p-5">
-          <div className="grid h-10 w-10 place-items-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground"><Landmark size={20} /></div>
-          <div className="font-semibold leading-tight">Patrimônio<div className="text-xs font-normal opacity-70">Controle e inventário</div></div>
+          <BrandMark size={40} />
+          <div className="font-display font-bold leading-tight">Patrimônio<div className="text-xs font-medium opacity-70">CTI · ARPE</div></div>
         </div>
+        <TricolorStripe className="mx-5 mb-4" />
         <nav className="flex-1 space-y-1 px-3">
           {NAV.map((n) => (
             <Link key={n.to} to={n.to} className="flex items-center gap-3 rounded-lg px-3 py-3 text-sm transition-colors hover:bg-sidebar-accent"
@@ -77,7 +79,7 @@ function Layout() {
       </aside>
 
       <header className="sticky top-0 z-30 flex items-center justify-between bg-sidebar px-4 py-3 text-sidebar-foreground md:hidden">
-        <div className="flex items-center gap-2 font-semibold"><Landmark size={18} />Patrimônio</div>
+        <div className="flex items-center gap-2 font-display font-bold"><BrandMark size={26} />Patrimônio · CTI</div>
         <div className="flex items-center">
           {isAdmin && <Link to="/usuarios" aria-label="Usuários do sistema" className="p-2"><Users size={18} /></Link>}
           <button onClick={() => setSenhaOpen(true)} aria-label="Alterar minha senha" className="p-2"><KeyRound size={18} /></button>

@@ -1,7 +1,8 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { Landmark, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { BrandMark, TricolorStripe } from "@/components/BrandMark";
 import { supabase } from "@/integrations/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -60,9 +61,10 @@ function AuthPage() {
     <div className="flex min-h-screen items-center justify-center bg-sidebar p-4">
       <form onSubmit={submit} className="w-full max-w-sm space-y-5 rounded-2xl bg-card p-7 shadow-xl animate-pop">
         <div className="flex items-center gap-3">
-          <div className="grid h-12 w-12 place-items-center rounded-xl bg-primary text-primary-foreground"><Landmark /></div>
+          <BrandMark size={48} />
           <div>
-            <h1 className="text-xl font-semibold">Controle de Patrimônio</h1>
+            <h1 className="text-xl">Controle de Patrimônio</h1>
+            <TricolorStripe className="mt-1 w-24" />
             <p className="text-sm text-muted-foreground">{setup ? "Primeiro acesso: crie o administrador" : "Entre com seu usuário"}</p>
           </div>
         </div>
