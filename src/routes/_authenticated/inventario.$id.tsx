@@ -259,7 +259,24 @@ function InventarioSetor() {
         })}
       </ul>
 
-      {camera && <CameraScanner onClose={() => setCamera(false)} onCode={(c, ocr) => processarLeitura(c, ocr ? "OCR" : "Câmera")} />}
+      {camera && (
+        <CameraScanner 
+          onClose={() => setCamera(false)} 
+          onCode={(c, ocr) => {
+            // 1. Preenche o input com o código lido
+            setCodigo(c);
+            
+            // 2. Dá um pequeno delay para o React atualizar a tela e o usuário ver o número
+            setTimeout(() => {
+              // 3. Confirma a leitura chamando a função central
+              processarLeitura(c, ocr ? "OCR" : "Câmera");
+              
+              // 4. Limpa o input para a próxima leitura
+              setCodigo("");
+            }, 150);
+          }} 
+        />
+      )}
       <EquipamentoDialog value={novo} setores={d!.setores} onClose={() => { setNovo(null); setScan(null); }} />
 
       <Dialog open={relatorio} onOpenChange={setRelatorio}>

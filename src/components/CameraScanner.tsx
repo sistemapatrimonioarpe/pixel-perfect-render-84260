@@ -1,205 +1,423 @@
 import { useEffect, useRef, useState } from "react";
-import { Flashlight, ScanText, X } from "lucide-react";
+import { Flashlight, ScanText, X, CheckCircle2, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { decodeEnhanced, getDecoder, ocrTombamento, sharpness } from "@/lib/barcode";
+import { ocrTombamento } from "@/lib/barcode";
 
 type Caps = {
   zoom?: { min: number; max: number; step: number } | undefined;
   torch?: boolean;
-  focusModes: string[];
-  focusDistance?: { min: number; max: number; step: number } | undefined;
 };
 
-// Laplacian variance thresholds (measured on a 320px-wide copy)
-const BLUR = 60, READY = 140;
+/**
+ * Valida e formata o tombamento no padrão 000000.000000.0000.
+ * - Remove qualquer caractere não numérico.
+ * - Exige exatamente 16 dígitos.
+ * - Retorna null se o formato for inválido.
+ */
+function validarTombamento(raw: string): string | null {
+  const digits = raw.replace(/\D/g, "");
+  if (digits.length !== 16) return null;
+  return `${digits.slice(0, 6)}.${digits.slice(6, 12)}.${digits.slice(12, 16)}`;
+}
 
-/** Single camera instance in a fixed panel; continuous reading; OCR fallback after 8 s. */
-export function CameraScanner({ onClose, onCode }: { onClose: () => void; onCode: (c: string, ocr?: boolean) => void }) {
-  const videoRef = useRef<HTMLVideoElement>(null);
+export function CameraScanner({
+  onClose,
+  onCode,
+}: {
+  onClose: () => void;
+  onCode: (c: string, ocr?: boolean) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  const quaggaRef = useRef<any>(null);
   const onCodeRef = useRef(onCode);
   onCodeRef.current = onCode;
-  const lastReadRef = useRef(Date.now());
+
+  // Controle de duplicidade de leitura válida
+  const lastCodeRef = useRef({ code: "", at: 0 });
+  // Controle de throttle para leituras inválidas (evita re-render spam)
+  const lastInvalidRef = useRef(0);
+  // Controle de OCR em andamento
   const ocrBusy = useRef(false);
+  // Marca temporal da última leitura (para detectar "sem leitura")
+  const lastReadRef = useRef(Date.now());
+
   const [err, setErr] = useState<string | null>(null);
   const [lido, setLido] = useState("");
+  const [formatoInvalido, setFormatoInvalido] = useState<string | null>(null);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [devIdx, setDevIdx] = useState(-1);
-  const [caps, setCaps] = useState<Caps>({ focusModes: [] });
+  const [caps, setCaps] = useState<Caps>({});
   const [zoom, setZoom] = useState(1);
   const [torch, setTorch] = useState(false);
-  const [focusDist, setFocusDist] = useState<number | null>(null);
-  const [quality, setQuality] = useState(0);
-  const [semLeitura, setSemLeitura] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<string | null>(null);
-  const [tap, setTap] = useState<{ x: number; y: number; k: number } | null>(null);
+  const [semLeitura, setSemLeitura] = useState(false);
+  const [showSuccess, setShowSuccess] = useState(false);
   const [ativo, setAtivo] = useState(false);
-  const [flash, setFlash] = useState<{ ok: boolean; k: number } | null>(null);
-
-  useEffect(() => {
-    let t: ReturnType<typeof setTimeout> | undefined;
-    const h = (e: Event) => { setFlash({ ok: !!(e as CustomEvent).detail, k: Date.now() }); clearTimeout(t); t = setTimeout(() => setFlash(null), 500); };
-    window.addEventListener("scan-feedback", h);
-    return () => { window.removeEventListener("scan-feedback", h); clearTimeout(t); };
-  }, []);
 
   const track = () => streamRef.current?.getVideoTracks()[0];
-  async function apply(c: Record<string, unknown>) { try { await track()?.applyConstraints({ advanced: [c as any] }); } catch { /* unsupported */ } }
+
+  async function apply(c: Record<string, unknown>) {
+    try {
+      await track()?.applyConstraints({ advanced: [c as any] });
+    } catch {
+      /* recurso não suportado — ignorado */
+    }
+  }
 
   async function runOcr(manual: boolean) {
-    const v = videoRef.current;
-    if (!v || ocrBusy.current || !v.videoWidth) return;
-    ocrBusy.current = true; setOcrStatus("Lendo número impresso...");
+    const video = containerRef.current?.querySelector("video") as HTMLVideoElement | null;
+    if (!video || ocrBusy.current || !video.videoWidth) return;
+
+    ocrBusy.current = true;
+    setOcrStatus("Lendo número impresso...");
     try {
-      const t = await ocrTombamento(v);
-      if (t) { setLido(t); setOcrStatus(`Lido por OCR: ${t}`); lastReadRef.current = Date.now(); onCodeRef.current(t, true); }
-      else setOcrStatus(manual ? "Número não reconhecido (formato 000000.000000.0000). Tente de novo." : null);
-    } catch (e: any) { setOcrStatus("Erro no OCR: " + (e?.message ?? e)); }
-    finally { ocrBusy.current = false; }
+      const t = await ocrTombamento(video);
+      if (!t) {
+        setOcrStatus(manual ? "Número não reconhecido. Tente de novo." : null);
+        return;
+      }
+      const validado = validarTombamento(t);
+      if (!validado) {
+        setOcrStatus(`OCR leu "${t}" — formato inválido (esperado 000000.000000.0000)`);
+        return;
+      }
+      setLido(validado);
+      setOcrStatus(`Lido por OCR: ${validado}`);
+      setFormatoInvalido(null);
+      lastReadRef.current = Date.now();
+      onCodeRef.current(validado, true);
+      setShowSuccess(true);
+      setTimeout(() => setShowSuccess(false), 1500);
+    } catch (e: any) {
+      setOcrStatus("Erro no OCR: " + (e?.message ?? e));
+    } finally {
+      ocrBusy.current = false;
+    }
   }
 
   useEffect(() => {
     let cancelled = false;
     let timer: ReturnType<typeof setInterval> | undefined;
-    const stop = () => { setAtivo(false); streamRef.current?.getTracks().forEach((t) => t.stop()); streamRef.current = null; };
+
+    const stop = () => {
+      setAtivo(false);
+      try {
+        quaggaRef.current?.stop();
+      } catch {
+        /* ignora */
+      }
+      streamRef.current?.getTracks().forEach((t) => t.stop());
+      streamRef.current = null;
+    };
+
     (async () => {
       stop();
       try {
+        const mod = await import("@ericblade/quagga2");
+        const Quagga = (mod as any).default ?? mod;
+        quaggaRef.current = Quagga;
+
+        if (cancelled || !containerRef.current) return;
+
         const dev = devIdx >= 0 ? devices[devIdx] : undefined;
-        const base = dev ? { deviceId: { exact: dev.deviceId } } : { facingMode: "environment" };
-        let stream: MediaStream;
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { ...base, width: { ideal: 3840 }, height: { ideal: 2160 }, frameRate: { ideal: 30 } } });
-        } catch {
-          stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { ...base, width: { ideal: 1920 }, height: { ideal: 1080 }, frameRate: { ideal: 30 } } });
-        }
-        if (cancelled) { stream.getTracks().forEach((t) => t.stop()); return; }
-        streamRef.current = stream;
-        const tr = stream.getVideoTracks()[0]!;
-        const c: any = tr.getCapabilities?.() ?? {};
-        const focusModes: string[] = c.focusMode ?? [];
-        if (focusModes.includes("continuous")) await apply({ focusMode: "continuous" });
-        setCaps({
-          zoom: c.zoom ? { min: c.zoom.min, max: c.zoom.max, step: c.zoom.step || 0.1 } : undefined,
-          torch: !!c.torch,
-          focusModes,
-          focusDistance: c.focusDistance && focusModes.includes("manual") ? { min: c.focusDistance.min, max: c.focusDistance.max, step: c.focusDistance.step || 0.01 } : undefined,
-        });
-        setZoom(1); setTorch(false); setFocusDist(null);
-        const v = videoRef.current!;
-        v.srcObject = stream;
-        await v.play().catch(() => {});
-        if (!devices.length) navigator.mediaDevices.enumerateDevices().then((d) => !cancelled && setDevices(d.filter((x) => x.kind === "videoinput"))).catch(() => {});
-        await getDecoder();
-        lastReadRef.current = Date.now();
-        let running = false;
-        timer = setInterval(async () => {
-          if (running || cancelled || !v.videoWidth) return;
-          running = true;
-          try {
-            const s = sharpness(v);
-            setQuality(s);
+        const deviceConfig = dev
+          ? { deviceId: { exact: dev.deviceId } }
+          : { facingMode: "environment" as const };
+
+        const config = {
+          inputStream: {
+            name: "Live",
+            type: "LiveStream",
+            target: containerRef.current,
+            constraints: {
+              ...deviceConfig,
+              width: { min: 1280 },
+              height: { min: 720 },
+              aspectRatio: { min: 1, max: 2 },
+            },
+            // Área de interesse deve casar com o guia visual (10%–10% / 35%–35%)
+            area: { top: "35%", right: "10%", left: "10%", bottom: "35%" },
+          },
+          locator: { patchSize: "small", halfSample: false },
+          numOfWorkers: navigator.hardwareConcurrency || 2,
+          decoder: { readers: ["code_128_reader"] },
+          locate: true,
+        };
+
+        Quagga.init(config, (initErr: any) => {
+          if (cancelled) return;
+
+          if (initErr) {
+            const name = initErr?.name ?? "";
+            setErr(
+              name === "NotAllowedError" || /permission/i.test(String(initErr?.message))
+                ? "Permissão da câmera negada. Libere o acesso nas configurações."
+                : "Não foi possível abrir a câmera: " + (initErr?.message ?? initErr),
+            );
+            return;
+          }
+
+          Quagga.start();
+          setAtivo(true);
+          setErr(null);
+
+          const video = containerRef.current?.querySelector("video") as HTMLVideoElement | null;
+          if (video && video.srcObject) {
+            const stream = video.srcObject as MediaStream;
+            streamRef.current = stream;
+            const tr = stream.getVideoTracks()[0];
+            const c: any = tr?.getCapabilities?.() ?? {};
+            setCaps({
+              zoom: c.zoom ? { min: c.zoom.min, max: c.zoom.max, step: c.zoom.step || 0.1 } : undefined,
+              torch: !!c.torch,
+            });
+            if ((c.focusMode ?? []).includes("continuous")) {
+              apply({ focusMode: "continuous" });
+            }
+          }
+
+          Quagga.onDetected((result: any) => {
+            const cr = result?.codeResult;
+            if (!cr?.code || cr.format !== "code_128") return;
+
+            const raw = String(cr.code).trim();
+            const validado = validarTombamento(raw);
+            const now = Date.now();
+
+            if (!validado) {
+              if (now - lastInvalidRef.current > 1500) {
+                lastInvalidRef.current = now;
+                setFormatoInvalido(raw);
+              }
+              return;
+            }
+
+            // Debounce: ignora re-leitura do MESMO código em < 1.5s
+            if (validado === lastCodeRef.current.code && now - lastCodeRef.current.at < 1500) {
+              return;
+            }
+
+            lastCodeRef.current = { code: validado, at: now };
+            lastReadRef.current = now;
+            setLido(validado);
+            setFormatoInvalido(null);
+            setSemLeitura(false);
+            setShowSuccess(true);
+            setTimeout(() => setShowSuccess(false), 1500);
+            onCodeRef.current(validado);
+          });
+
+          // ---- Loop auxiliar: detecta "sem leitura" e dispara OCR fallback ----
+          timer = setInterval(() => {
             const idle = Date.now() - lastReadRef.current;
             setSemLeitura(idle > 10000);
-            if (idle > 8000 && s >= BLUR && !ocrBusy.current) void runOcr(false);
-            if (s < BLUR) return;
-            const text = await decodeEnhanced(v, s >= READY ? [{ scale: 1.5 }] : [{ scale: 1.5 }, { scale: 2 }]);
-            if (text) {
-              const t = text.trim();
-              setLido(t); lastReadRef.current = Date.now(); setSemLeitura(false);
-              onCodeRef.current(t); // parent ignores repeats within 2 s
+            if (idle > 8000 && !ocrBusy.current) {
+              void runOcr(false);
             }
-          } catch { /* keep scanning */ } finally { running = false; }
-        }, 150);
-        setErr(null); setAtivo(true);
+          }, 1000);
+
+          // ---- Listagem de câmeras ----
+          if (!devices.length) {
+            navigator.mediaDevices
+              .enumerateDevices()
+              .then((d) => !cancelled && setDevices(d.filter((x) => x.kind === "videoinput")))
+              .catch(() => {});
+          }
+        });
       } catch (e: any) {
-        const name = e?.name ?? "";
-        setErr(name === "NotAllowedError" || /permission/i.test(String(e?.message)) ? "A permissão da câmera foi negada. Libere o acesso à câmera nas configurações do navegador e tente de novo." : "Não foi possível abrir a câmera: " + (e?.message ?? e));
+        setErr("Erro ao inicializar scanner: " + (e?.message ?? e));
       }
     })();
-    return () => { cancelled = true; if (timer) clearInterval(timer); stop(); };
+
+    return () => {
+      cancelled = true;
+      if (timer) clearInterval(timer);
+      stop();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [devIdx]);
 
-  async function tapFocus(ev: React.PointerEvent<HTMLDivElement>) {
-    const r = ev.currentTarget.getBoundingClientRect();
-    const x = (ev.clientX - r.left) / r.width, y = (ev.clientY - r.top) / r.height;
-    setTap({ x, y, k: Date.now() });
-    setTimeout(() => setTap(null), 900);
-    const m = caps.focusModes;
-    if (m.includes("single-shot")) await apply({ focusMode: "single-shot", pointsOfInterest: [{ x, y }] });
-    else if (m.includes("manual") && caps.focusDistance) await apply({ focusMode: "manual", focusDistance: caps.focusDistance.min });
-    if (m.includes("continuous")) setTimeout(() => apply({ focusMode: "continuous" }), 1200);
-  }
+  const estado = showSuccess
+    ? "✓ Lido!"
+    : formatoInvalido
+      ? "Formato inválido"
+      : semLeitura
+        ? "Nada lido"
+        : ativo
+          ? "Aponte para o código"
+          : "Iniciando...";
 
-  const temFoco = caps.focusModes.length > 0;
-  const borda = quality < BLUR ? "border-destructive" : quality < READY ? "border-warning" : "border-success";
-  const estado = quality < BLUR ? "Focando..." : quality < READY ? "Quase nítido" : "Nítido — lendo";
+  const borda = showSuccess
+    ? "border-success"
+    : formatoInvalido || semLeitura
+      ? "border-destructive"
+      : "border-success";
 
   return (
-    <div className="fixed inset-x-0 bottom-0 z-50 max-h-[92vh] overflow-y-auto rounded-t-2xl border-t bg-card p-3 shadow-2xl md:inset-x-auto md:bottom-4 md:right-4 md:w-[520px] md:rounded-2xl md:border">
-      <div className="mb-2 flex items-center justify-between">
-        <div className="font-semibold">Câmera — leitura contínua</div>
-        <button onClick={onClose} aria-label="Fechar câmera" className="text-muted-foreground"><X size={20} /></button>
+    <div className="fixed inset-x-0 bottom-0 z-50 max-h-[55vh] overflow-y-auto rounded-t-2xl border-t bg-card/95 p-2 shadow-2xl backdrop-blur-sm md:inset-x-auto md:bottom-4 md:right-4 md:w-[420px] md:rounded-2xl md:border">
+      {/* Cabeçalho compacto */}
+      <div className="mb-1 flex items-center justify-between">
+        <div className="text-sm font-semibold">Scanner</div>
+        <button
+          onClick={onClose}
+          aria-label="Fechar"
+          className="text-muted-foreground hover:text-foreground"
+        >
+          <X size={18} />
+        </button>
       </div>
-      <div className={`relative overflow-hidden rounded-xl border-4 transition-colors ${borda}`} onPointerDown={tapFocus}>
-        <video ref={videoRef} playsInline muted className="aspect-video w-full bg-muted object-cover" />
-        {ativo && (() => {
-          const cor = flash?.ok === true ? "rgb(0 220 90)" : flash?.ok === false ? "rgb(255 40 40)" : "rgb(0 220 90)";
-          const laser = flash?.ok === true ? "green" : quality < BLUR ? "yellow" : "red";
-          const corner = { position: "absolute" as const, width: 22, height: 22, borderColor: cor, borderStyle: "solid" };
-          return (
-            <div className="pointer-events-none absolute inset-0">
-              <div key={flash?.k ?? 0} className={`absolute ${flash ? "scan-frame-blink" : ""}`} style={{ left: "7.5%", width: "85%", top: "32.5%", height: "35%", boxShadow: "0 0 0 9999px rgba(0,0,0,0.4)", outline: flash?.ok === false ? `2px solid ${cor}` : undefined }}>
-                <span style={{ ...corner, left: 0, top: 0, borderWidth: "4px 0 0 4px" }} />
-                <span style={{ ...corner, right: 0, top: 0, borderWidth: "4px 4px 0 0" }} />
-                <span style={{ ...corner, left: 0, bottom: 0, borderWidth: "0 0 4px 4px" }} />
-                <span style={{ ...corner, right: 0, bottom: 0, borderWidth: "0 4px 4px 0" }} />
-                {flash?.ok !== false && <div className={`scan-laser ${laser}`} />}
-              </div>
-            </div>
-          );
-        })()}
-        <span className="pointer-events-none absolute left-2 top-2 rounded-md bg-background/80 px-2 py-0.5 text-xs font-medium">{estado}</span>
-        {tap && <span key={tap.k} className="pointer-events-none absolute h-16 w-16 -translate-x-1/2 -translate-y-1/2 animate-pop rounded-md border-2 border-warning" style={{ left: `${tap.x * 100}%`, top: `${tap.y * 100}%` }} />}
-      </div>
-      <div className="mt-2 text-sm">Código lido: <span className="font-mono font-semibold">{lido || "—"}</span></div>
-      {ocrStatus && <div className="text-xs text-muted-foreground">{ocrStatus}</div>}
-      {err && <p className="text-sm text-destructive">{err}</p>}
-      {semLeitura && !err && <p className="mt-1 rounded-md bg-warning-soft px-2 py-1 text-xs text-warning-foreground">Nada lido ainda. Use o botão "Foto da etiqueta" ou "Ler número impresso".</p>}
 
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        {caps.zoom && [1, 2, 3].filter((z) => z <= caps.zoom!.max).map((z) => (
-          <Button key={z} size="sm" variant={Math.round(zoom) === z ? "default" : "outline"} onClick={() => { setZoom(z); apply({ zoom: Math.max(caps.zoom!.min, z) }); }}>{z}x</Button>
-        ))}
-        {caps.torch && <Button size="sm" variant={torch ? "default" : "outline"} onClick={() => { setTorch(!torch); apply({ torch: !torch }); }}><Flashlight />Lanterna</Button>}
-        <Button size="sm" variant="outline" onClick={() => runOcr(true)}><ScanText />Ler número impresso</Button>
+      {/* Container de vídeo — altura fixa, object-cover (sem barras pretas) */}
+      <div className={`relative h-[32vh] w-full overflow-hidden rounded-lg border-2 bg-black transition-colors ${borda}`}>
+        <div
+          ref={containerRef}
+          className="h-full w-full [&>video]:h-full [&>video]:w-full [&>video]:object-cover [&>canvas]:hidden"
+        />
+
+        {ativo && (
+          <div className="pointer-events-none absolute inset-0">
+            {/* Guia de foco (idêntico à área processada pelo Quagga) */}
+            <div
+              className="absolute"
+              style={{
+                left: "10%",
+                right: "10%",
+                top: "35%",
+                bottom: "35%",
+                boxShadow: "0 0 0 9999px rgba(0,0,0,0.55)",
+              }}
+            >
+              {(["tl", "tr", "bl", "br"] as const).map((pos) => {
+                const base = {
+                  position: "absolute" as const,
+                  width: 20,
+                  height: 20,
+                  borderColor: "rgb(0 220 90)",
+                  borderStyle: "solid" as const,
+                };
+                const style =
+                  pos === "tl"
+                    ? { ...base, left: 0, top: 0, borderWidth: "3px 0 0 3px" }
+                    : pos === "tr"
+                      ? { ...base, right: 0, top: 0, borderWidth: "3px 3px 0 0" }
+                      : pos === "bl"
+                        ? { ...base, left: 0, bottom: 0, borderWidth: "0 0 3px 3px" }
+                        : { ...base, right: 0, bottom: 0, borderWidth: "0 3px 3px 0" };
+                return <span key={pos} style={style} />;
+              })}
+
+              {showSuccess && (
+                <div className="absolute inset-0 flex items-center justify-center bg-success/20">
+                  <CheckCircle2 className="animate-in zoom-in text-success" size={48} />
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        <span className="pointer-events-none absolute left-1.5 top-1.5 rounded bg-background/80 px-1.5 py-0.5 text-[10px] font-medium">
+          {estado}
+        </span>
       </div>
+
+      {/* Código lido */}
+      <div className="mt-1 flex items-center justify-between gap-2 text-xs">
+        <span className="truncate">
+          Código: <span className="font-mono font-semibold">{lido || "—"}</span>
+        </span>
+      </div>
+
+      {/* Mensagens de erro / status */}
+      {formatoInvalido && (
+        <p className="mt-1 flex items-center gap-1 rounded bg-destructive/10 px-2 py-1 text-[11px] text-destructive">
+          <AlertTriangle size={12} className="shrink-0" />
+          <span className="truncate">
+            Formato inválido: <span className="font-mono">{formatoInvalido}</span> · esperado 000000.000000.0000
+          </span>
+        </p>
+      )}
+      {ocrStatus && <div className="mt-1 truncate text-[11px] text-muted-foreground">{ocrStatus}</div>}
+      {err && <p className="mt-1 text-[11px] text-destructive">{err}</p>}
+
+      {/* Controles compactos */}
+      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+        {caps.zoom &&
+          [1, 2, 3]
+            .filter((z) => z <= caps.zoom!.max)
+            .map((z) => (
+              <Button
+                key={z}
+                size="sm"
+                variant={Math.round(zoom) === z ? "default" : "outline"}
+                className="h-7 px-2 text-xs"
+                onClick={() => {
+                  setZoom(z);
+                  apply({ zoom: Math.max(caps.zoom!.min, z) });
+                }}
+              >
+                {z}x
+              </Button>
+            ))}
+
+        {caps.torch && (
+          <Button
+            size="sm"
+            variant={torch ? "default" : "outline"}
+            className="h-7 px-2 text-xs"
+            onClick={() => {
+              setTorch(!torch);
+              apply({ torch: !torch });
+            }}
+          >
+            <Flashlight size={12} className="mr-1" />
+            Luz
+          </Button>
+        )}
+
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-xs"
+          onClick={() => runOcr(true)}
+        >
+          <ScanText size={12} className="mr-1" />
+          OCR
+        </Button>
+
+        <Button
+          size="sm"
+          variant="outline"
+          className="h-7 px-2 text-xs"
+          disabled={devices.length < 2}
+          onClick={() => setDevIdx((i) => (i + 1) % devices.length)}
+        >
+          Trocar
+        </Button>
+
+        <Button size="sm" onClick={onClose} className="ml-auto h-7 px-2 text-xs">
+          Fechar
+        </Button>
+      </div>
+
+      {/* Slider de zoom (opcional) */}
       {caps.zoom && (
-        <label className="mt-2 block text-xs text-muted-foreground">Zoom {zoom.toFixed(1)}x
-          <input type="range" className="w-full" min={caps.zoom.min} max={Math.min(caps.zoom.max, 5)} step={caps.zoom.step} value={zoom}
-            onChange={(e) => { const z = Number(e.target.value); setZoom(z); apply({ zoom: z }); }} />
+        <label className="mt-1 block text-[10px] text-muted-foreground">
+          Zoom {zoom.toFixed(1)}x
+          <input
+            type="range"
+            className="w-full"
+            min={caps.zoom.min}
+            max={Math.min(caps.zoom.max, 5)}
+            step={caps.zoom.step}
+            value={zoom}
+            onChange={(e) => {
+              const z = Number(e.target.value);
+              setZoom(z);
+              apply({ zoom: z });
+            }}
+          />
         </label>
-      )}
-      {caps.focusDistance && (
-        <label className="mt-2 block text-xs text-muted-foreground">Distância do foco
-          <input type="range" className="w-full" min={caps.focusDistance.min} max={caps.focusDistance.max} step={caps.focusDistance.step} value={focusDist ?? caps.focusDistance.min}
-            onChange={(e) => { const f = Number(e.target.value); setFocusDist(f); apply({ focusMode: "manual", focusDistance: f }); }} />
-        </label>
-      )}
-      <p className="mt-2 text-xs text-muted-foreground">
-        Deixe a etiqueta na horizontal, a 15-25 cm, sem reflexo. Prefira o ZOOM a aproximar demais o celular (muito perto desfoca).
-        {temFoco ? " Toque no vídeo para focar." : " Afaste o celular 15-25 cm, espere focar e aproxime devagar."}
-      </p>
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <Button variant="outline" disabled={devices.length < 2} onClick={() => setDevIdx((i) => (i + 1) % devices.length)}>Trocar câmera</Button>
-        <Button onClick={onClose}>Fechar câmera</Button>
-      </div>
-      {devices.length > 1 && (
-        <select className="mt-2 h-10 w-full rounded-md border border-input bg-card px-2 text-sm" value={devIdx} onChange={(e) => setDevIdx(Number(e.target.value))}>
-          <option value={-1}>Câmera traseira (padrão)</option>
-          {devices.map((d, i) => <option key={d.deviceId || i} value={i}>{d.label || `Câmera ${i + 1}`}</option>)}
-        </select>
       )}
     </div>
   );
