@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 
 export const Route = createFileRoute("/_authenticated/equipamentos")({
-  head: () => ({ meta: [{ title: "Equipamentos — Controle de Patrimônio" }, { name: "description", content: "Tombamentos: busca, cadastro, importação e exportação." }] }),
+  head: () => ({ meta: [{ title: "Equipamentos — Controle de Patrimônio" }, { name: "description", content: "Tombamentos: busca, cadastro, importação e exportação." }, { property: "og:title", content: "Equipamentos — Controle de Patrimônio" }, { property: "og:description", content: "Tombamentos: busca, cadastro, importação e exportação." }, { property: "og:type", content: "website" }, { name: "twitter:card", content: "summary" }] }),
   validateSearch: (s: Record<string, unknown>) => ({ setor: typeof s['setor'] === "string" ? (s['setor'] as string) : undefined }),
   component: Equipamentos,
 });
@@ -80,7 +80,7 @@ function Equipamentos() {
 
       <div className="mb-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         <div className="relative"><Search className="absolute left-3 top-3 text-muted-foreground" size={18} />
-          <Input placeholder="Buscar tombamento, nome, usuário..." value={busca} onChange={(e) => setBusca(e.target.value)} className="h-11 pl-10" /></div>
+          <Input placeholder="Buscar tombamento, descrição, responsável..." value={busca} onChange={(e) => setBusca(e.target.value)} className="h-11 pl-10" /></div>
         <Sel value={fSetor} onChange={setFSetor} options={[[ALL, "Todos os setores"], ...(q.data?.se ?? []).map((s) => [s.id, s.nome] as [string, string])]} />
         <Sel value={fTipo} onChange={setFTipo} options={[[ALL, "Todos os tipos"], ...tipos.map((t) => [t, t] as [string, string])]} />
         <Sel value={fEstado} onChange={setFEstado} options={[[ALL, "Todos os estados"], ...ESTADOS.map((t) => [t, t] as [string, string])]} />
@@ -90,15 +90,15 @@ function Equipamentos() {
         <div className="overflow-hidden rounded-2xl border bg-card">
           <table className="w-full text-sm">
             <thead className="hidden bg-muted text-left text-xs uppercase text-muted-foreground md:table-header-group">
-              <tr><th className="p-3">Tombamento</th><th className="p-3">Nome</th><th className="p-3">Usuário</th><th className="p-3">Setor</th><th className="p-3">Estado</th><th className="p-3" /></tr>
+              <tr><th className="p-3">Tombamento</th><th className="p-3">Descrição</th><th className="p-3">Setor</th><th className="p-3">Responsável</th><th className="p-3">Estado</th><th className="p-3" /></tr>
             </thead>
             <tbody className="divide-y">
               {lista.slice(0, 500).map((e) => (
                 <tr key={e.id} onClick={() => setFicha(e)} className="flex cursor-pointer flex-wrap items-center gap-x-3 p-3 hover:bg-muted/50 md:table-row md:p-0">
                   <td className="font-mono font-semibold md:p-3">{e.tombamento}</td>
-                  <td className="w-full md:w-auto md:p-3">{e.nome}</td>
-                  <td className="text-muted-foreground md:p-3">{e.usuario || "—"}</td>
+                  <td className="w-full md:w-auto md:p-3">{e.descricao || "—"}</td>
                   <td className="text-muted-foreground md:p-3">{e.setor_id ? setorMap.get(e.setor_id)?.sigla || setorMap.get(e.setor_id)?.nome : "Sem setor"}</td>
+                  <td className="text-muted-foreground md:p-3">{e.usuario || "—"}</td>
                   <td className="md:p-3"><span className="rounded-md bg-accent px-2 py-0.5 text-xs">{e.estado}</span></td>
                   <td className="ml-auto md:p-3" onClick={(ev) => ev.stopPropagation()}>
                     <div className="flex justify-end gap-1">
@@ -147,7 +147,7 @@ export function EquipamentoDialog({ value, setores, onClose }: { value: Partial<
           <div className="space-y-1"><Label>Tombamento</Label><Input className="h-11 font-mono" value={v.tombamento ?? ""} onChange={(e) => setForm({ ...form, tombamento: e.target.value })} /></div>
           <div className="space-y-1"><Label>Nome</Label><Input className="h-11" value={v.nome ?? ""} onChange={(e) => setForm({ ...form, nome: e.target.value })} placeholder="Ex.: Computador, Cadeira" /></div>
           <div className="space-y-1"><Label>Descrição</Label><Textarea value={v.descricao ?? ""} onChange={(e) => setForm({ ...form, descricao: e.target.value })} /></div>
-          <div className="space-y-1"><Label>Usuário</Label><Input className="h-11" value={v.usuario ?? ""} onChange={(e) => setForm({ ...form, usuario: e.target.value })} /></div>
+          <div className="space-y-1"><Label>Responsável</Label><Input className="h-11" value={v.usuario ?? ""} onChange={(e) => setForm({ ...form, usuario: e.target.value })} /></div>
           <div className="grid grid-cols-2 gap-3">
             <div className="space-y-1"><Label>Estado</Label><Sel className="w-full" value={v.estado ?? "Bom"} onChange={(x) => setForm({ ...form, estado: x })} options={ESTADOS.map((t) => [t, t])} /></div>
             <div className="space-y-1"><Label>Setor</Label><Sel className="w-full" value={v.setor_id ?? ""} onChange={(x) => setForm({ ...form, setor_id: x || null })} options={[["", "Sem setor"], ...setores.map((s) => [s.id, s.nome] as [string, string])]} /></div>
@@ -188,7 +188,7 @@ function Ficha({ equip, setor, onClose }: { equip: Equipamento | null; setor?: S
         {equip && <>
           <DialogHeader><DialogTitle><span className="font-mono">{equip.tombamento}</span> · {equip.nome}</DialogTitle></DialogHeader>
           <dl className="grid grid-cols-2 gap-3 text-sm">
-            {[["Setor", setor?.nome ?? "Sem setor"], ["Usuário", equip.usuario || "—"], ["Estado", equip.estado], ["Cadastrado em", fmtDate(equip.created_at)]].map(([k, val]) => (
+            {[["Setor", setor?.nome ?? "Sem setor"], ["Responsável", equip.usuario || "—"], ["Estado", equip.estado], ["Cadastrado em", fmtDate(equip.created_at)]].map(([k, val]) => (
               <div key={k}><dt className="text-xs text-muted-foreground">{k}</dt><dd className="font-medium">{val}</dd></div>
             ))}
             <div className="col-span-2"><dt className="text-xs text-muted-foreground">Descrição</dt><dd>{equip.descricao || "—"}</dd></div>
@@ -201,7 +201,7 @@ function Ficha({ equip, setor, onClose }: { equip: Equipamento | null; setor?: S
   );
 }
 
-const CAMPOS = [["tombamento", "Tombamento*"], ["nome", "Nome*"], ["descricao", "Descrição"], ["usuario", "Usuário"], ["setor", "Setor"]] as const;
+const CAMPOS = [["tombamento", "Tombamento*"], ["descricao", "Descrição"], ["setor", "Setor"], ["usuario", "Responsável"], ["nome", "Estado*"]] as const;
 type Campo = (typeof CAMPOS)[number][0];
 
 function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
