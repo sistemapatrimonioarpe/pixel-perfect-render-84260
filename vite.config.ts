@@ -1,15 +1,19 @@
-// @lovable.dev/vite-tanstack-config already includes the following — do NOT add them manually
-// or the app will break with duplicate plugins:
-//   - TanStack devtools (dev-only, first), tanstackStart, viteReact, tailwindcss, tsConfigPaths,
-//     nitro (build-only using cloudflare as a default target), VITE_* env injection, @ path alias,
-//     React/TanStack dedupe, error logger plugins, and sandbox detection (port/host/strictPort).
-// You can pass additional config via defineConfig({ vite: { ... }, etc... }) if needed.
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
+  // 1. Configuração do Vite para permitir o host do ngrok
+  vite: {
+    server: {
+      allowedHosts: [
+        "leonor-unrummaged-larraine.ngrok-free.dev", // Adicione aqui o host exato que aparece no seu erro
+        // Você pode adicionar outros hosts se precisar (ex: "outro-subdominio.ngrok-free.app")
+      ],
+    },
+  },
+  // 2. Configuração do TanStack Start (sua configuração original)
   tanstackStart: {
-    // Redirect TanStack Start's bundled server entry to src/server.ts (our SSR error wrapper).
-    // nitro/vite builds from this
-    server: { entry: "server" },
+    server: { 
+      entry: "server" 
+    },
   },
 });
