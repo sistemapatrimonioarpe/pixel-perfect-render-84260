@@ -9,7 +9,7 @@ import { CameraScanner } from "@/components/CameraScanner";
 import { ErrorBox, Loading } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { EquipamentoDialog, HistoricoList } from "./equipamentos";
 
 export const Route = createFileRoute("/_authenticated/inventario/$id")({
@@ -66,7 +66,8 @@ function InventarioSetor() {
   const lista = (d?.equipamentos ?? []).filter((e) => filtro === "todos" || (filtro === "ok") === conferidos.has(e.id));
 
   useEffect(() => {
-    if (camera || novo || relatorio || scan?.kind === "outro") return;
+    // Não rouba o foco do input enquanto houver Dialogs abertos
+    if (camera || novo || relatorio || (scan && scan.kind !== "ok")) return;
     const t = setInterval(() => { if (document.activeElement?.tagName !== "INPUT" && document.activeElement?.tagName !== "SELECT") inputRef.current?.focus(); }, 800);
     return () => clearInterval(t);
   }, [camera, novo, relatorio, scan]);
@@ -162,8 +163,15 @@ function InventarioSetor() {
     if (error) return void toast.error(error.message);
     await logHistorico(scan.equip.id, "Transferência", `De ${scan.setorAtual?.nome ?? "sem setor"} para ${alvo?.nome}`);
     const e = { ...scan.equip, setor_id: destino };
-    if (destino === d.inv.setor_id) { await conferir(e, true); feedback(true); setUltimo({ bruto: scan.lido, metodo: "Lista", resultado: `Transferido e conferido · ${e.tombamento}`, tom: "ok" }); setScan({ lido: scan.lido, kind: "ok", equip: e, repetido: false }); setTimeout(() => document.getElementById(`item-${e.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 300); }
-    else { toast.success(`Transferido para ${alvo?.nome}`); setScan(null); }
+    if (destino === d.inv.setor_id) {
+      await conferir(e, true); feedback(true);
+      setUltimo({ bruto: scan.lido, metodo: "Lista", resultado: `Transferido e conferido · ${e.tombamento}`, tom: "ok" });
+      setScan({ lido: scan.lido, kind: "ok", equip: e, repetido: false });
+      setTimeout(() => document.getElementById(`item-${e.id}`)?.scrollIntoView({ behavior: "smooth", block: "center" }), 300);
+    } else {
+      toast.success(`Transferido para ${alvo?.nome}`);
+      setScan(null);
+    }
   }
 
   async function finalizar() {
@@ -233,8 +241,47 @@ function InventarioSetor() {
         </div>
       </div>
 
-      {scan && <ScanCard scan={scan} setor={setor} setores={d!.setores} destino={destino} setDestino={setDestino}
-        onTransfer={transferir} onEscolher={(e) => avaliar(e, scan.lido, "Lista")} onCadastrar={(c) => setNovo({ tombamento: c, setor_id: d!.inv.setor_id, estado: "Bom" })} onClose={() => setScan(null)} />}
+      {/* "ok" continua inline para não interromper o fluxo contínuo */}
+      {scan && scan.kind === "ok" && (
+        <ScanCard
+          scan={scan}
+          setor={setor}
+          setores={d!.setores}
+          destino={destino}
+          setDestino={setDestino}
+          onTransfer={transferir}
+          onEscolher={(e) => avaliar(e, scan.lido, "Lista")}
+          onCadastrar={(c) => { setScan(null); setNovo({ tombamento: c, setor_id: d!.inv.setor_id, estado: "Bom" }); }}
+          onClose={() => setScan(null)}
+        />
+      )}
+
+      {/* Casos que exigem ação abrem em Dialog por cima do Scanner */}
+      {scan && scan.kind !== "ok" && (
+        <Dialog open onOpenChange={(o) => { if (!o) setScan(null); }}>
+          <DialogContent className="max-w-lg">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                {scan.kind === "nao" && (<><AlertTriangle className="text-destructive" size={20} />Tombamento não cadastrado</>)}
+                {scan.kind === "outro" && (<><AlertTriangle className="text-warning-foreground" size={20} />Equipamento de outro setor</>)}
+                {scan.kind === "escolha" && (<><ScanLine className="text-primary" size={20} />Escolha o equipamento</>)}
+              </DialogTitle>
+            </DialogHeader>
+            <ScanCard
+              scan={scan}
+              inDialog
+              setor={setor}
+              setores={d!.setores}
+              destino={destino}
+              setDestino={setDestino}
+              onTransfer={transferir}
+              onEscolher={(e) => avaliar(e, scan.lido, "Lista")}
+              onCadastrar={(c) => { setScan(null); setNovo({ tombamento: c, setor_id: d!.inv.setor_id, estado: "Bom" }); }}
+              onClose={() => setScan(null)}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
 
       <div className="mt-4 flex flex-wrap items-center justify-between gap-2">
         <div className="inline-flex rounded-xl border bg-card p-1">
@@ -260,21 +307,16 @@ function InventarioSetor() {
       </ul>
 
       {camera && (
-        <CameraScanner 
-          onClose={() => setCamera(false)} 
+        <CameraScanner
+          paused={!!scan && scan.kind !== "ok"}
+          onClose={() => setCamera(false)}
           onCode={(c, ocr) => {
-            // 1. Preenche o input com o código lido
             setCodigo(c);
-            
-            // 2. Dá um pequeno delay para o React atualizar a tela e o usuário ver o número
             setTimeout(() => {
-              // 3. Confirma a leitura chamando a função central
               processarLeitura(c, ocr ? "OCR" : "Câmera");
-              
-              // 4. Limpa o input para a próxima leitura
               setCodigo("");
             }, 150);
-          }} 
+          }}
         />
       )}
       <EquipamentoDialog value={novo} setores={d!.setores} onClose={() => { setNovo(null); setScan(null); }} />
@@ -301,18 +343,20 @@ function InventarioSetor() {
   );
 }
 
-function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onEscolher, onCadastrar, onClose }: {
-  scan: Scan; setor?: Setor | undefined; setores: Setor[]; destino: string; setDestino: (v: string) => void;
+function ScanCard({ scan, inDialog = false, setor, setores, destino, setDestino, onTransfer, onEscolher, onCadastrar, onClose }: {
+  scan: Scan; inDialog?: boolean;
+  setor?: Setor | undefined; setores: Setor[]; destino: string; setDestino: (v: string) => void;
   onTransfer: () => void; onEscolher: (e: Equipamento) => void; onCadastrar: (c: string) => void; onClose: () => void;
 }) {
   const tone = scan.kind === "escolha" ? "border-primary bg-card" : scan.kind === "ok" ? (scan.repetido ? "border-warning bg-warning-soft" : "border-success bg-success-soft") : scan.kind === "outro" ? "border-warning bg-warning-soft" : "border-destructive bg-destructive/10";
-  return (
-    <div className={`relative mt-3 rounded-2xl border-2 p-4 animate-pop ${tone}`}>
-      <button onClick={onClose} className="absolute right-3 top-3 text-muted-foreground" aria-label="Fechar"><X size={18} /></button>
+
+  const conteudo = (
+    <>
       <div className="mb-2 text-xs text-muted-foreground">Código lido: <span className="font-mono font-semibold text-foreground">{scan.lido}</span></div>
+
       {scan.kind === "escolha" ? (
         <div>
-          <div className="font-semibold">Vários equipamentos parecidos — escolha o correto:</div>
+          {!inDialog && <div className="font-semibold">Vários equipamentos parecidos — escolha o correto:</div>}
           <div className="mt-2 max-h-64 divide-y overflow-y-auto rounded-xl border bg-card">
             {scan.opcoes.map((o) => (
               <button key={o.id} onClick={() => onEscolher(o)} className="block w-full p-3 text-left hover:bg-muted">
@@ -323,17 +367,24 @@ function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onEsc
         </div>
       ) : scan.kind === "nao" ? (
         <div>
-          <div className="flex items-center gap-2 font-semibold text-destructive"><AlertTriangle size={20} />Tombamento não cadastrado</div>
-          <p className="mt-1 text-sm">O tombamento <span className="font-mono font-semibold">{scan.codigo}</span> não existe no sistema.</p>
+          {!inDialog && (
+            <div className="flex items-center gap-2 font-semibold text-destructive"><AlertTriangle size={20} />Tombamento não cadastrado</div>
+          )}
+          <p className={inDialog ? "text-sm" : "mt-1 text-sm"}>
+            O tombamento <span className="font-mono font-semibold">{scan.codigo}</span> não existe no sistema.
+          </p>
           <Button className="mt-3" size="lg" onClick={() => onCadastrar(scan.codigo)}><PackagePlus />Cadastrar equipamento</Button>
         </div>
       ) : (
         <div>
-          {scan.kind === "ok" ? (
-            scan.repetido ? <div className="flex items-center gap-2 font-semibold text-warning-foreground"><AlertTriangle size={20} />Já conferido</div>
-              : <div className="flex items-center gap-2 font-semibold text-success"><CheckCircle2 size={20} />Conferido!</div>
-          ) : (
-            <div className="flex items-center gap-2 font-semibold text-warning-foreground"><AlertTriangle size={20} />Este equipamento pertence ao setor {scan.setorAtual?.nome ?? "(sem setor)"}</div>
+          {!inDialog && (
+            scan.kind === "ok" ? (
+              scan.repetido
+                ? <div className="flex items-center gap-2 font-semibold text-warning-foreground"><AlertTriangle size={20} />Já conferido</div>
+                : <div className="flex items-center gap-2 font-semibold text-success"><CheckCircle2 size={20} />Conferido!</div>
+            ) : (
+              <div className="flex items-center gap-2 font-semibold text-warning-foreground"><AlertTriangle size={20} />Este equipamento pertence ao setor {scan.setorAtual?.nome ?? "(sem setor)"}</div>
+            )
           )}
           <div className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
             <div><div className="text-xs text-muted-foreground">Tombamento</div><div className="font-mono font-semibold">{scan.equip.tombamento}</div></div>
@@ -352,7 +403,15 @@ function ScanCard({ scan, setor, setores, destino, setDestino, onTransfer, onEsc
           <details className="mt-3"><summary className="cursor-pointer text-sm font-medium">Histórico do item</summary><div className="mt-2"><HistoricoList equipamentoId={scan.equip.id} /></div></details>
         </div>
       )}
-    </div>
+    </>
   );
-}
 
+  return inDialog
+    ? <div className="space-y-1">{conteudo}</div>
+    : (
+      <div className={`relative mt-3 rounded-2xl border-2 p-4 animate-pop ${tone}`}>
+        <button onClick={onClose} className="absolute right-3 top-3 text-muted-foreground" aria-label="Fechar"><X size={18} /></button>
+        {conteudo}
+      </div>
+    );
+}

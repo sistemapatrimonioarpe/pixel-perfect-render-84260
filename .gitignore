@@ -30,6 +30,8 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
-
+.local
+.env.test
+.env.production
 .env
 package-lock.json
