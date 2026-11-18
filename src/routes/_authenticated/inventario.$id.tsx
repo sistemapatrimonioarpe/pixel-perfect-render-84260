@@ -9,7 +9,7 @@ import { CameraScanner } from "@/components/CameraScanner";
 import { ErrorBox, Loading } from "@/components/ui-kit";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EquipamentoDialog, HistoricoList } from "./equipamentos";
 
 export const Route = createFileRoute("/_authenticated/inventario/$id")({
@@ -241,7 +241,7 @@ function InventarioSetor() {
         </div>
       </div>
 
-      {/* "ok" continua inline para não interromper o fluxo contínuo */}
+      {/* ✅ "ok" continua INLINE (não interrompe o fluxo contínuo de scanneamento) */}
       {scan && scan.kind === "ok" && (
         <ScanCard
           scan={scan}
@@ -256,10 +256,11 @@ function InventarioSetor() {
         />
       )}
 
-      {/* Casos que exigem ação abrem em Dialog por cima do Scanner */}
+      {/* 🟡🔴🔵 Casos que EXIGEM AÇÃO abrem em Dialog POR CIMA do Scanner */}
       {scan && scan.kind !== "ok" && (
         <Dialog open onOpenChange={(o) => { if (!o) setScan(null); }}>
-          <DialogContent className="max-w-lg">
+          {/* z-[100] garante que fica acima do CameraScanner (z-50) */}
+          <DialogContent className="z-[100] max-w-lg">
             <DialogHeader>
               <DialogTitle className="flex items-center gap-2">
                 {scan.kind === "nao" && (<><AlertTriangle className="text-destructive" size={20} />Tombamento não cadastrado</>)}

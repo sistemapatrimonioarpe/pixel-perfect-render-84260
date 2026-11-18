@@ -23,9 +23,11 @@ function validarTombamento(raw: string): string | null {
 export function CameraScanner({
   onClose,
   onCode,
+  paused = false,
 }: {
   onClose: () => void;
   onCode: (c: string, ocr?: boolean) => void;
+  paused?: boolean;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -33,13 +35,12 @@ export function CameraScanner({
   const onCodeRef = useRef(onCode);
   onCodeRef.current = onCode;
 
-  // Controle de duplicidade de leitura válida
+  const pausedRef = useRef(paused);
+  pausedRef.current = paused;
+
   const lastCodeRef = useRef({ code: "", at: 0 });
-  // Controle de throttle para leituras inválidas (evita re-render spam)
   const lastInvalidRef = useRef(0);
-  // Controle de OCR em andamento
   const ocrBusy = useRef(false);
-  // Marca temporal da última leitura (para detectar "sem leitura")
   const lastReadRef = useRef(Date.now());
 
   const [err, setErr] = useState<string | null>(null);
@@ -66,6 +67,7 @@ export function CameraScanner({
   }
 
   async function runOcr(manual: boolean) {
+    if (pausedRef.current && !manual) return;
     const video = containerRef.current?.querySelector("video") as HTMLVideoElement | null;
     if (!video || ocrBusy.current || !video.videoWidth) return;
 
@@ -114,6 +116,7 @@ export function CameraScanner({
     (async () => {
       stop();
       try {
+        // Import dinâmico (SSR-safe)
         const mod = await import("@ericblade/quagga2");
         const Quagga = (mod as any).default ?? mod;
         quaggaRef.current = Quagga;
@@ -136,7 +139,6 @@ export function CameraScanner({
               height: { min: 720 },
               aspectRatio: { min: 1, max: 2 },
             },
-            // Área de interesse deve casar com o guia visual (10%–10% / 35%–35%)
             area: { top: "35%", right: "10%", left: "10%", bottom: "35%" },
           },
           locator: { patchSize: "small", halfSample: false },
@@ -162,6 +164,7 @@ export function CameraScanner({
           setAtivo(true);
           setErr(null);
 
+          // Captura o stream para aplicar zoom/lanterna
           const video = containerRef.current?.querySelector("video") as HTMLVideoElement | null;
           if (video && video.srcObject) {
             const stream = video.srcObject as MediaStream;
@@ -178,6 +181,7 @@ export function CameraScanner({
           }
 
           Quagga.onDetected((result: any) => {
+            if (pausedRef.current) return;
             const cr = result?.codeResult;
             if (!cr?.code || cr.format !== "code_128") return;
 
@@ -208,8 +212,8 @@ export function CameraScanner({
             onCodeRef.current(validado);
           });
 
-          // ---- Loop auxiliar: detecta "sem leitura" e dispara OCR fallback ----
           timer = setInterval(() => {
+            if (pausedRef.current) return;
             const idle = Date.now() - lastReadRef.current;
             setSemLeitura(idle > 10000);
             if (idle > 8000 && !ocrBusy.current) {
@@ -217,7 +221,6 @@ export function CameraScanner({
             }
           }, 1000);
 
-          // ---- Listagem de câmeras ----
           if (!devices.length) {
             navigator.mediaDevices
               .enumerateDevices()
@@ -258,7 +261,9 @@ export function CameraScanner({
     <div className="fixed inset-x-0 bottom-0 z-50 max-h-[55vh] overflow-y-auto rounded-t-2xl border-t bg-card/95 p-2 shadow-2xl backdrop-blur-sm md:inset-x-auto md:bottom-4 md:right-4 md:w-[420px] md:rounded-2xl md:border">
       {/* Cabeçalho compacto */}
       <div className="mb-1 flex items-center justify-between">
-        <div className="text-sm font-semibold">Scanner</div>
+        <div className="text-sm font-semibold">
+          Scanner {paused && <span className="ml-1 text-[10px] font-normal text-muted-foreground">(pausado)</span>}
+        </div>
         <button
           onClick={onClose}
           aria-label="Fechar"
