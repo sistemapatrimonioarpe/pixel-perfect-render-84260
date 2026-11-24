@@ -210,6 +210,7 @@ function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void })
   const [map, setMap] = useState<Record<Campo, string>>({ tombamento: "", nome: "", descricao: "", usuario: "", setor: "" });
   const [dup, setDup] = useState<"ignorar" | "atualizar">("ignorar");
   const [busy, setBusy] = useState(false);
+  const [prog, setProg] = useState(0);
   const [report, setReport] = useState<{ importados: number; atualizados: number; ignorados: number; erros: string[] } | null>(null);
 
   function reset() { setRows([]); setCols([]); setReport(null); setMap({ tombamento: "", nome: "", descricao: "", usuario: "", setor: "" }); }
@@ -228,7 +229,9 @@ function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void })
 
   async function run() {
     if (!map.tombamento || !map.nome) return void toast.error("Mapeie ao menos tombamento e nome");
-    setBusy(true);
+    setBusy(true); setProg(0);
+    let done = 0; const total = rows.length || 1;
+    const tick = (n = 1) => { done += n; setProg(Math.min(100, Math.round((done / total) * 100))); };
     const r = { importados: 0, atualizados: 0, ignorados: 0, erros: [] as string[] };
     try {
       const setores = await fetchAll<Setor>("setores");
@@ -242,27 +245,31 @@ function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void })
       }
       const novos: any[] = []; const seen = new Set<string>();
       for (const [i, row] of rows.entries()) {
+        if (i % 25 === 0) await new Promise((res) => setTimeout(res, 0));
         const tomb = get(row, "tombamento"); const nome = get(row, "nome");
-        if (!tomb || !nome) { r.erros.push(`Linha ${i + 2}: tombamento ou nome vazio`); continue; }
-        if (seen.has(tomb)) { r.erros.push(`Linha ${i + 2}: tombamento ${tomb} repetido na planilha`); continue; }
+        if (!tomb || !nome) { r.erros.push(`Linha ${i + 2}: tombamento ou nome vazio`); tick(); continue; }
+        if (seen.has(tomb)) { r.erros.push(`Linha ${i + 2}: tombamento ${tomb} repetido na planilha`); tick(); continue; }
         seen.add(tomb);
         const setorNome = get(row, "setor");
         const payload: any = { tombamento: tomb, nome, descricao: get(row, "descricao") || null, usuario: get(row, "usuario") || null, setor_id: setorNome ? sMap.get(setorNome.toLowerCase()) ?? null : null };
         const ex = existing.get(tomb);
         if (ex) {
-          if (dup === "ignorar") { r.ignorados++; continue; }
+          if (dup === "ignorar") { r.ignorados++; tick(); continue; }
           const { error } = await db.from("equipamentos").update({ ...payload, updated_at: new Date().toISOString() }).eq("id", ex.id);
           if (error) r.erros.push(`${tomb}: ${error.message}`); else r.atualizados++;
+          tick();
         } else novos.push(payload);
       }
       for (let i = 0; i < novos.length; i += 500) {
-        const { data, error } = await db.from("equipamentos").insert(novos.slice(i, i + 500)).select("id");
+        const lote = novos.slice(i, i + 500);
+        const { data, error } = await db.from("equipamentos").insert(lote).select("id");
         if (error) r.erros.push(`Lote ${i / 500 + 1}: ${error.message}`);
         else {
           r.importados += data.length;
           const { data: u } = await (await import("@/integrations/supabase/client")).supabase.auth.getUser();
           await db.from("historico").insert(data.map((d: any) => ({ equipamento_id: d.id, acao: "Importação", detalhes: "Cadastrado via planilha", usuario_email: u.user?.email ?? null })));
         }
+        tick(lote.length);
       }
       setReport(r);
     } catch (e: any) { toast.error(e.message); } finally { setBusy(false); }
@@ -303,7 +310,13 @@ function ImportDialog({ open, onClose }: { open: boolean; onClose: () => void })
                 <tbody>{rows.slice(0, 8).map((r, i) => <tr key={i} className="border-t">{CAMPOS.map(([k]) => <td key={k} className="p-2">{map[k] ? String(r[map[k]] ?? "") : ""}</td>)}</tr>)}</tbody></table>
             </div>
             <p className="text-xs text-muted-foreground">Pré-visualização das primeiras linhas · {rows.length} linhas no total. Setores inexistentes serão criados.</p>
-            <DialogFooter><Button variant="outline" onClick={reset}>Trocar arquivo</Button><Button size="lg" onClick={run} disabled={busy}>{busy ? "Importando..." : `Importar ${rows.length} linhas`}</Button></DialogFooter>
+            {busy && (
+              <div className="space-y-1" role="progressbar" aria-valuenow={prog} aria-valuemin={0} aria-valuemax={100}>
+                <div className="flex justify-between text-xs"><span className="font-medium">Importando dados...</span><span className="tabular-nums">{prog}%</span></div>
+                <div className="h-3 overflow-hidden rounded-full bg-muted"><div className="h-full rounded-full bg-primary transition-all duration-300" style={{ width: `${prog}%` }} /></div>
+              </div>
+            )}
+            <DialogFooter><Button variant="outline" disabled={busy} onClick={reset}>Trocar arquivo</Button><Button size="lg" onClick={run} disabled={busy}>{busy ? "Importando..." : `Importar ${rows.length} linhas`}</Button></DialogFooter>
           </div>
         )}
       </DialogContent>

@@ -2,7 +2,7 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Play, RotateCw } from "lucide-react";
+import { Play, RotateCcw, RotateCw } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { db, fetchAll, fmtDate, useRealtime, type Equipamento, type Inventario, type InventarioItem, type Setor } from "@/lib/patrimonio";
 import { Empty, ErrorBox, Loading, PageHeader } from "@/components/ui-kit";
@@ -37,6 +37,19 @@ function InventarioHome() {
     navigate({ to: "/inventario/$id", params: { id: data.id } });
   }
 
+  async function reiniciar(s: Setor, aberto: Inventario) {
+    if (!window.confirm(`Reiniciar o inventário de ${s.nome}? Todas as conferências feitas até agora serão apagadas e a contagem volta a zero.`)) return;
+    setBusy(s.id);
+    const { error } = await db.from("inventario_itens").delete().eq("inventario_id", aberto.id);
+    if (!error) await db.from("inventarios").update({ iniciado_em: new Date().toISOString() }).eq("id", aberto.id);
+    const { data: u } = await supabase.auth.getUser();
+    if (!error) await db.from("historico").insert({ acao: "Inventário reiniciado", detalhes: s.nome, usuario_email: u.user?.email ?? null });
+    setBusy(null);
+    if (error) return void toast.error(error.message);
+    toast.success("Inventário reiniciado");
+    q.refetch();
+  }
+
   return (
     <div>
       <PageHeader title="Inventário" subtitle="Escolha um setor para conferir os bens" />
@@ -61,6 +74,11 @@ function InventarioHome() {
                 <Button size="lg" className="mt-4 h-12" variant={aberto ? "secondary" : "default"} disabled={busy === s.id} onClick={() => start(s, aberto)}>
                   {aberto ? <><RotateCw />Continuar inventário</> : <><Play />Iniciar inventário</>}
                 </Button>
+                {aberto && (
+                  <Button size="lg" variant="outline" className="mt-2 h-11 text-destructive hover:text-destructive" disabled={busy === s.id} onClick={() => reiniciar(s, aberto)}>
+                    <RotateCcw />Reiniciar inventário
+                  </Button>
+                )}
               </div>
             );
           })}

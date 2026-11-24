@@ -15,10 +15,13 @@ export const Route = createFileRoute("/_authenticated")({
   beforeLoad: async () => {
     const { data, error } = await supabase.auth.getUser();
     if (error || !data.user) throw redirect({ to: "/auth" });
-    const [p, r] = await Promise.all([
+    const load = () => Promise.all([
       supabase.from("perfis").select("*").eq("id", data.user.id).maybeSingle(),
       supabase.from("user_roles").select("role").eq("user_id", data.user.id),
     ]);
+    let [p, r] = await load();
+    if (p.error) [p, r] = await load();
+    if (p.error) throw new Error("Não foi possível carregar seu perfil. Tente novamente.");
     if (!p.data || !p.data.ativo) {
       await supabase.auth.signOut();
       toast.error("Usuário desativado");

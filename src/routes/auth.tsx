@@ -43,7 +43,10 @@ function AuthPage() {
       }
       const { data, error } = await supabase.auth.signInWithPassword({ email: loginToEmail(usuario), password });
       if (error) throw error;
-      const { data: perfil } = await supabase.from("perfis").select("ativo").eq("id", data.user.id).maybeSingle();
+      let pr = await supabase.from("perfis").select("ativo").eq("id", data.user.id).maybeSingle();
+      if (pr.error) pr = await supabase.from("perfis").select("ativo").eq("id", data.user.id).maybeSingle();
+      if (pr.error) throw new Error("Não foi possível verificar seu acesso. Tente novamente.");
+      const perfil = pr.data;
       if (!perfil || !perfil.ativo) {
         await supabase.auth.signOut();
         throw new Error("Usuário desativado");
