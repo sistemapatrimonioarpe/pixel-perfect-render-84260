@@ -246,6 +246,7 @@ export type Database = {
         }
         Returns: boolean
       }
+      usuario_ativo: { Args: { _user_id: string }; Returns: boolean }
     }
     Enums: {
       app_role: "admin" | "usuario"
